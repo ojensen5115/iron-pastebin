@@ -1,0 +1,13 @@
+[package]
+name = "hw"
+version = "0.1.0"
+authors = ["Oliver Jensen <ojensen5115@gmail.com>"]
+
+[dependencies.iron]
+version = "*"
+
+[dependencies]
+router = "*"
+bodyparser = "*"
+
+rand = "*"
