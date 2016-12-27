@@ -33,6 +33,10 @@ use iron::status;
 
 use router::Router;
 
+const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const ID_LEN: usize = 5;
+const SOCKET: &'static str = "localhost:3000";
+
 fn main() {
     let mut router = Router::new();
     router.get("/", usage, "index");
@@ -41,12 +45,15 @@ fn main() {
     router.put("/:paste_id", replace, "replace");
     router.post("/", submit, "submit");
 
-    println!("http://localhost:3000/");
-    Iron::new(router).http("localhost:3000").unwrap();
+    let server = Iron::new(router).http(SOCKET).unwrap();
+    println!("listening on http://{} ({})", SOCKET, server.socket);
 }
 
+
+
+
 fn usage(_: &mut Request) -> IronResult<Response> {
-    Ok(Response::with((status::Ok, "
+    Ok(Response::with((status::Ok, format!("
     USAGE
 
       POST /
@@ -54,7 +61,7 @@ fn usage(_: &mut Request) -> IronResult<Response> {
           accepts raw data in the body of the request and responds with a URL of
           a page containing the body's content:
 
-          eg: echo \"hello world\" | curl --data-binary @- http://localhost:3000
+          eg: echo \"hello world\" | curl --data-binary @- http://{socket}
 
       GET /<id>
 
@@ -64,17 +71,16 @@ fn usage(_: &mut Request) -> IronResult<Response> {
 
           deletes the paste with id `<id>`.
 
-          eg: curl -X DELETE http://localhost:3000/fZWK3
+          eg: curl -X DELETE http://{socket}/fZWK3
 
       PUT /<id>
 
           replaces the contents of the paste with id `<id>`.
 
-          eg: echo \"hello world\" | curl -X PUT --data-binary @- http://localhost:3000")))
+          eg: echo \"hello world\" | curl -X PUT --data-binary @- http://{socket}", socket = SOCKET))))
 }
 
-const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-const ID_LEN: usize = 5;
+
 
 fn submit(req: &mut Request) -> IronResult<Response> {
     let body = itry!(req.get::<bodyparser::Raw>()).unwrap();
@@ -88,7 +94,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
             break;
         }
     }
-    let url = format!("http://localhost:3000/{id}", id = id);
+    let url = format!("http://{socket}/{id}", socket = SOCKET, id = id);
 
     let mut f = itry!(File::create(path));
     itry!(f.write_all(body.as_bytes()));
@@ -124,7 +130,7 @@ fn replace(req: &mut Request) -> IronResult<Response> {
     if !Path::new(&path).exists() {
         return Ok(Response::with((status::Ok, format!("Paste {} does not exist.\n", id))));
     }
-    let url = format!("http://localhost:3000/{id}", id = id);
+    let url = format!("http://{socket}/{id}", socket=SOCKET, id = id);
 
     let mut f = itry!(File::create(path));
     itry!(f.write_all(body.as_bytes()));
