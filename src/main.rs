@@ -1,6 +1,6 @@
 /*
 TODO:
-- Add a web form to the index where users can manually input new pastes. Accept the form at POST /.
+- Add a web form to the index where users can manually input new pastes. Accept the form at POST /. (need to use different content-type to differentiate)
 - Limit the upload to a maximum size. If the upload exceeds that size, return a 206 partial status code. Otherwise, return a 201 created status code.
 - Add a new route, GET /<id>/<lang> that syntax highlights the paste with ID <id> for language <lang>. If <lang> is not a known language, do no highlighting. Possibly validate <lang> with FromParam.
 - Use the testing module to write unit tests for your pastebin.
@@ -33,6 +33,8 @@ use crypto::hmac::Hmac;
 use crypto::mac::Mac;
 use crypto::sha2::Sha256;
 
+//use iron::headers::ContentType;
+//use iron::modifiers::Header;
 use iron::prelude::*;
 use iron::status;
 
@@ -61,7 +63,7 @@ fn main() {
 
 
 fn usage(_: &mut Request) -> IronResult<Response> {
-    Ok(Response::with((status::Ok, format!("
+    Ok(Response::with((status::Ok, /*Header(ContentType::html()),*/ format!("
     USAGE
 
       POST /
