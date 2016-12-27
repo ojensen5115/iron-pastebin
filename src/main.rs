@@ -1,9 +1,8 @@
 /*
-
 TODO:
+- Generate unique key for each paste, restrict PUT and DELETE to knowing this key
 - Add a web form to the index where users can manually input new pastes. Accept the form at POST /.
 - Limit the upload to a maximum size. If the upload exceeds that size, return a 206 partial status code. Otherwise, return a 201 created status code.
-- Add a PUT /<id> route that allows a user with the key for <id> to replace the existing paste, if any.
 - Add a new route, GET /<id>/<lang> that syntax highlights the paste with ID <id> for language <lang>. If <lang> is not a known language, do no highlighting. Possibly validate <lang> with FromParam.
 - Use the testing module to write unit tests for your pastebin.
 - Dispatch a thread before launching Iron in main that periodically cleans up idling old pastes in upload/.
@@ -13,7 +12,7 @@ DONE:
 - Set the Content-Type of the return value in upload and retrieve to text/plain.
 - Support deletion of pastes by adding a new DELETE /<id> route.
 - Require that the key is present and matches when doing deletion.
-
+- Add a PUT /<id> route that allows a user with the <id> to replace the existing paste, if any.
 */
 
 #[macro_use] extern crate iron;
@@ -39,6 +38,7 @@ fn main() {
     router.get("/", usage, "index");
     router.get("/:paste_id", retrieve, "retrieve");
     router.delete("/:paste_id", delete, "delete");
+    router.put("/:paste_id", replace, "replace");
     router.post("/", submit, "submit");
 
     println!("http://localhost:3000/");
@@ -64,7 +64,13 @@ fn usage(_: &mut Request) -> IronResult<Response> {
 
           deletes the paste with id `<id>`.
 
-          eg: curl -X DELETE http://localhost:3000/fZWK3")))
+          eg: curl -X DELETE http://localhost:3000/fZWK3
+
+      PUT /<id>
+
+          replaces the contents of the paste with id `<id>`.
+
+          eg: echo \"hello world\" | curl -X PUT --data-binary @- http://localhost:3000")))
 }
 
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -108,6 +114,21 @@ fn delete(req: &mut Request) -> IronResult<Response> {
     }
     itry!(fs::remove_file(path));
     Ok(Response::with((status::Ok, format!("Paste {} deleted.\n", id))))
+}
+
+fn replace(req: &mut Request) -> IronResult<Response> {
+    let body = itry!(req.get::<bodyparser::Raw>()).unwrap();
+    let ref id = req.extensions.get::<Router>()
+           .unwrap().find("paste_id").unwrap_or("/");
+    let path = format!("uploads/{id}", id = id);
+    if !Path::new(&path).exists() {
+        return Ok(Response::with((status::Ok, format!("Paste {} does not exist.\n", id))));
+    }
+    let url = format!("http://localhost:3000/{id}", id = id);
+
+    let mut f = itry!(File::create(path));
+    itry!(f.write_all(body.as_bytes()));
+    Ok(Response::with((status::Ok, url + " overwritten.\n")))
 }
 
 fn generate_id(size: usize) -> String {
