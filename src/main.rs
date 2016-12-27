@@ -1,6 +1,5 @@
 /*
 TODO:
-- Generate unique key for each paste, restrict PUT and DELETE to knowing this key
 - Add a web form to the index where users can manually input new pastes. Accept the form at POST /.
 - Limit the upload to a maximum size. If the upload exceeds that size, return a 206 partial status code. Otherwise, return a 201 created status code.
 - Add a new route, GET /<id>/<lang> that syntax highlights the paste with ID <id> for language <lang>. If <lang> is not a known language, do no highlighting. Possibly validate <lang> with FromParam.
@@ -13,11 +12,13 @@ DONE:
 - Support deletion of pastes by adding a new DELETE /<id> route.
 - Require that the key is present and matches when doing deletion.
 - Add a PUT /<id> route that allows a user with the <id> to replace the existing paste, if any.
+- Generate unique key for each paste, restrict PUT and DELETE to knowing this key
 */
 
 #[macro_use] extern crate iron;
 extern crate router;
 extern crate bodyparser;
+extern crate crypto;
 
 extern crate rand;
 use rand::Rng;
@@ -28,25 +29,32 @@ use std::path::Path;
 use std::io::Write;
 use std::io::Read;
 
+use crypto::hmac::Hmac;
+use crypto::mac::Mac;
+use crypto::sha2::Sha256;
+
 use iron::prelude::*;
 use iron::status;
 
 use router::Router;
 
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const HMAC_KEY: &'static [u8] = b"this is my hmac key lol :) 3456789*&^%$#W";
 const ID_LEN: usize = 5;
+const KEY_LEN: usize = 5;
 const SOCKET: &'static str = "localhost:3000";
 
 fn main() {
     let mut router = Router::new();
     router.get("/", usage, "index");
     router.get("/:paste_id", retrieve, "retrieve");
-    router.delete("/:paste_id", delete, "delete");
-    router.put("/:paste_id", replace, "replace");
+    router.delete("/:paste_id/:key", delete, "delete");
+    router.put("/:paste_id/:key", replace, "replace");
     router.post("/", submit, "submit");
 
     let server = Iron::new(router).http(SOCKET).unwrap();
     println!("listening on http://{} ({})", SOCKET, server.socket);
+
 }
 
 
@@ -57,26 +65,19 @@ fn usage(_: &mut Request) -> IronResult<Response> {
     USAGE
 
       POST /
-
           accepts raw data in the body of the request and responds with a URL of
           a page containing the body's content:
-
           eg: echo \"hello world\" | curl --data-binary @- http://{socket}
 
       GET /<id>
-
           retrieves the content for the paste with id `<id>`
 
-      DELETE /<id>
-
+      DELETE /<id>/<key>
           deletes the paste with id `<id>`.
-
           eg: curl -X DELETE http://{socket}/fZWK3
 
-      PUT /<id>
-
+      PUT /<id>/<key>
           replaces the contents of the paste with id `<id>`.
-
           eg: echo \"hello world\" | curl -X PUT --data-binary @- http://{socket}", socket = SOCKET))))
 }
 
@@ -98,7 +99,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
 
     let mut f = itry!(File::create(path));
     itry!(f.write_all(body.as_bytes()));
-    Ok(Response::with((status::Ok, url + "\n")))
+    Ok(Response::with((status::Ok, format!("{url}\nkey: {key}\n", url = url, key = gen_key(id)))))
 }
 
 fn retrieve(req: &mut Request) -> IronResult<Response> {
@@ -112,8 +113,13 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
 }
 
 fn delete(req: &mut Request) -> IronResult<Response> {
-    let ref id = req.extensions.get::<Router>()
-           .unwrap().find("paste_id").unwrap_or("/");
+    let ref id = req.extensions.get::<Router>().unwrap().find("paste_id").unwrap_or("/");
+    let ref key = req.extensions.get::<Router>().unwrap().find("key").unwrap_or("/");
+    // verify key
+    if *key != gen_key(id.to_string()) {
+        return Ok(Response::with((status::Ok, "invalid key\n")));
+    }
+    // verify file
     let path = format!("uploads/{id}", id = id);
     if !Path::new(&path).exists() {
         return Ok(Response::with((status::Ok, format!("Paste {} does not exist.\n", id))));
@@ -124,17 +130,21 @@ fn delete(req: &mut Request) -> IronResult<Response> {
 
 fn replace(req: &mut Request) -> IronResult<Response> {
     let body = itry!(req.get::<bodyparser::Raw>()).unwrap();
-    let ref id = req.extensions.get::<Router>()
-           .unwrap().find("paste_id").unwrap_or("/");
+    let ref id  = req.extensions.get::<Router>().unwrap().find("paste_id").unwrap_or("/");
+    let ref key = req.extensions.get::<Router>().unwrap().find("key").unwrap_or("/");
+    // verify key
+    if *key != gen_key(id.to_string()) {
+        return Ok(Response::with((status::Ok, "invalid key\n")));
+    }
+    // verify file
     let path = format!("uploads/{id}", id = id);
     if !Path::new(&path).exists() {
         return Ok(Response::with((status::Ok, format!("Paste {} does not exist.\n", id))));
     }
-    let url = format!("http://{socket}/{id}", socket=SOCKET, id = id);
 
     let mut f = itry!(File::create(path));
     itry!(f.write_all(body.as_bytes()));
-    Ok(Response::with((status::Ok, url + " overwritten.\n")))
+    Ok(Response::with((status::Ok, format!("http://{socket}/{id} overwritten.\n", socket=SOCKET, id = id))))
 }
 
 fn generate_id(size: usize) -> String {
@@ -144,4 +154,11 @@ fn generate_id(size: usize) -> String {
         id.push(BASE62[rng.gen::<usize>() % 62] as char);
     }
     id
+}
+
+fn gen_key(input: String) -> String {
+    let mut hmac = Hmac::new(Sha256::new(), HMAC_KEY);
+    hmac.input(input.as_bytes());
+    let hmac_result = hmac.result();
+    hmac_result.code().iter().take(KEY_LEN).map(|b| format!("{:02X}", b)).collect()
 }
