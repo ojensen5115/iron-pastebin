@@ -1,5 +1,5 @@
 [root]
-name = "hw"
+name = "pastebin"
 version = "0.1.0"
 dependencies = [
  "bodyparser 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",

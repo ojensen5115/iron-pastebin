@@ -1,5 +1,5 @@
 [package]
-name = "hw"
+name = "pastebin"
 version = "0.1.0"
 authors = ["Oliver Jensen <ojensen5115@gmail.com>"]
 
