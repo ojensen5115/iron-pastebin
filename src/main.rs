@@ -78,21 +78,22 @@ fn usage(_: &mut Request) -> IronResult<Response> {
 
       GET /&lt;id&gt;
           retrieves the content for the paste with id `&lt;id&gt;`
+          eg: curl http://{socket}/{id}
 
       DELETE /&lt;id&gt;/&lt;key&gt;
           deletes the paste with id `&lt;id&gt;`.
-          eg: curl -X DELETE http://{socket}/fZWK3
+          eg: curl -X DELETE http://{socket}/{id}/{key}
 
       PUT /&lt;id&gt;/&lt;key&gt;
           replaces the contents of the paste with id `&lt;id&gt;`.
-          eg: echo \"hello world\" | curl -X PUT --data-binary @- http://{socket}</pre>
+          eg: echo \"hello world\" | curl -X PUT --data-binary @- http://{socket}/{id}/{key}</pre>
     <hr>
     or use this form:
     <form method=\"post\" enctype=\"multipart/form-data\">
      <textarea name=\"data\" style=\"display: block; width: 500px; height: 300px\"></textarea>
      <input type=\"submit\">
     </form>
-    </body></html>", socket = SOCKET))))
+    </body></html>", socket = SOCKET, id = "fZWK3", key = "a7772362cf6e2c36"))))
 }
 
 
@@ -142,7 +143,7 @@ fn delete(req: &mut Request) -> IronResult<Response> {
     let ref key = req.extensions.get::<Router>().unwrap().find("key").unwrap_or("/");
     // verify key
     if *key != gen_key(id.to_string()) {
-        return Ok(Response::with((status::Unauthorized, "invalid key\n")));
+        return Ok(Response::with((status::Unauthorized, "Invalid key.\n")));
     }
     // verify file
     let path = format!("uploads/{id}", id = id);
@@ -159,7 +160,7 @@ fn replace(req: &mut Request) -> IronResult<Response> {
     let ref key = req.extensions.get::<Router>().unwrap().find("key").unwrap_or("/");
     // verify key
     if *key != gen_key(id.to_string()) {
-        return Ok(Response::with((status::Unauthorized, "invalid key\n")));
+        return Ok(Response::with((status::Unauthorized, "Invalid key.\n")));
     }
     // verify file
     let path = format!("uploads/{id}", id = id);
