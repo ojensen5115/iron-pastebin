@@ -31,7 +31,7 @@ use std::path::Path;
 use std::io::Write;
 use std::io::Read;
 
-use iron::headers::ContentType;
+use iron::headers::{ContentType, UserAgent};
 use iron::modifiers::Header;
 use iron::prelude::*;
 use iron::status;
@@ -62,7 +62,6 @@ fn main() {
     router.get("/", usage, "index");
     router.get("/:paste_id", retrieve, "retrieve");
     router.get("/:paste_id/:lang", retrieve, "retrieve_lang");
-    //router.get("/:paste_id/:key", invalid_method, "invalid_method");
     router.delete("/:paste_id/:key", delete, "delete");
     router.put("/:paste_id/:key", replace, "replace");
     router.post("/", submit, "submit");
@@ -77,9 +76,7 @@ fn main() {
 // so allows us to unambiguously differentiate between a "data" variable (from
 // the web form) and a raw post that happens contain urlencoded query params.
 // TODO: determine if it is poor style to have multipart forms without file upload?
-fn usage(req: &mut Request) -> IronResult<Response> {
-    Ok(Response::with((status::Ok, Header(ContentType::html()), format!("{:?}", req)))
-    
+fn usage(_: &mut Request) -> IronResult<Response> {
     Ok(Response::with((status::Ok, Header(ContentType::html()), format!("<html><head></head><body><pre>
     USAGE
 
@@ -160,7 +157,11 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
             let syntax = ss.find_syntax_by_extension(lang).unwrap_or_else(|| ss.find_syntax_plain_text());
             let mut highlighter = HighlightLines::new(syntax, &ts.themes["base16-eighties.dark"]);
             let mut output = String::new();
-            let show_html_output = false;
+            let show_html_output = match req.headers.get::<UserAgent>() {
+                // TODO: are these calls to to_string() necessary?
+                Some(&UserAgent(ref string)) => string[..5].to_string() != "curl/".to_string(),
+                _ => true
+            };
             if show_html_output {
                 output = highlighted_snippet_for_string(&buffer, syntax, &ts.themes["base16-eighties.dark"]);
                 Ok(Response::with((status::Ok, Header(ContentType::html()), format!("{}{}{}",
