@@ -4,6 +4,7 @@ TODO:
 - Add a new route, GET /<id>/<lang> that syntax highlights the paste with ID <id> for language <lang>. If <lang> is not a known language, do no highlighting. Possibly validate <lang> with FromParam.
 - Use the testing module to write unit tests for your pastebin.
 - Dispatch a thread before launching Iron in main that periodically cleans up idling old pastes in upload/.
+- Replace calls to unwrap etc. references with actual error handling
 
 DONE:
 - Ensure generated PasteID is unique.
@@ -19,20 +20,16 @@ DONE:
 extern crate router;
 extern crate params;
 extern crate bodyparser;
-extern crate crypto;
 
+extern crate crypto;
 extern crate rand;
-use rand::Rng;
+extern crate syntect;
 
 use std::fs;
 use std::fs::File;
 use std::path::Path;
 use std::io::Write;
 use std::io::Read;
-
-use crypto::hmac::Hmac;
-use crypto::mac::Mac;
-use crypto::sha2::Sha256;
 
 use iron::headers::ContentType;
 use iron::modifiers::Header;
@@ -41,6 +38,18 @@ use iron::status;
 
 use params::{Params, Value};
 use router::Router;
+
+use crypto::hmac::Hmac;
+use crypto::mac::Mac;
+use crypto::sha2::Sha256;
+
+use rand::Rng;
+
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{ThemeSet, Style};
+use syntect::html::highlighted_snippet_for_string;
+use syntect::parsing::SyntaxSet;
+use syntect::util::as_24_bit_terminal_escaped;
 
 const SOCKET: &'static str = "localhost:3000";
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -52,14 +61,14 @@ fn main() {
     let mut router = Router::new();
     router.get("/", usage, "index");
     router.get("/:paste_id", retrieve, "retrieve");
-    router.get("/:paste_id/:key", invalid_method, "invalid_method");
+    router.get("/:paste_id/:lang", retrieve, "retrieve_lang");
+    //router.get("/:paste_id/:key", invalid_method, "invalid_method");
     router.delete("/:paste_id/:key", delete, "delete");
     router.put("/:paste_id/:key", replace, "replace");
     router.post("/", submit, "submit");
 
     let server = Iron::new(router).http(SOCKET).unwrap();
     println!("listening on http://{} ({})", SOCKET, server.socket);
-
 }
 
 
@@ -77,9 +86,10 @@ fn usage(_: &mut Request) -> IronResult<Response> {
           a page containing the body's content:
           eg: echo \"hello world\" | curl --data-binary @- http://{socket}
 
-      GET /&lt;id&gt;
-          retrieves the content for the paste with id `&lt;id&gt;`
-          eg: curl http://{socket}/{id}
+      GET /&lt;id&gt;/&lt;?ext&gt;
+          retrieves the content for the paste with id `&lt;id&gt;`. Optional parameter
+          'ext' defines a file extension for syntax highlighting
+          eg: curl http://{socket}/{id}/{lang}
 
       DELETE /&lt;id&gt;/&lt;key&gt;
           deletes the paste with id `&lt;id&gt;`.
@@ -94,11 +104,11 @@ fn usage(_: &mut Request) -> IronResult<Response> {
      <textarea name=\"data\" style=\"display: block; width: 500px; height: 300px\"></textarea>
      <input type=\"submit\">
     </form>
-    </body></html>", socket = SOCKET, id = "fZWK3", key = "a7772362cf6e2c36"))))
+    </body></html>", socket = SOCKET, id = "fZWK3", key = "a7772362cf6e2c36", lang = "rs"))))
 }
 
 
-
+// TODO: determine whether bodyparser can replace Params ("parses body into a struct using Serde")
 fn submit(req: &mut Request) -> IronResult<Response> {
     // get paste contents, either raw post or data param
     let raw_body = itry!(req.get::<bodyparser::Raw>());
@@ -131,18 +141,51 @@ fn submit(req: &mut Request) -> IronResult<Response> {
 }
 
 fn retrieve(req: &mut Request) -> IronResult<Response> {
-    let ref id = req.extensions.get::<Router>()
-           .unwrap().find("paste_id").unwrap_or("/");
+    let params = req.extensions.get::<Router>().unwrap();
+    // TODO: "ref" appears unnecessary -- determine why it's here
+    let ref id = params.find("paste_id").unwrap_or("");
+    let lang = params.find("lang");
 
     let mut f = itry!(File::open(format!("uploads/{id}", id = id)));
     let mut buffer = String::new();
     itry!(f.read_to_string(&mut buffer));
-    Ok(Response::with((status::Ok, buffer)))
+
+    match lang {
+        Some(lang) => {
+            // syntax highlighting
+            let ss = SyntaxSet::load_defaults_nonewlines();
+            let ts = ThemeSet::load_defaults();
+            let syntax = ss.find_syntax_by_extension(lang).unwrap_or_else(|| ss.find_syntax_plain_text());
+            let mut highlighter = HighlightLines::new(syntax, &ts.themes["base16-eighties.dark"]);
+            let mut output = String::new();
+            let show_html_output = false;
+            if show_html_output {
+                output = highlighted_snippet_for_string(&buffer, syntax, &ts.themes["base16-eighties.dark"]);
+                Ok(Response::with((status::Ok, Header(ContentType::html()), format!("{}{}{}",
+                    "<html><head><style>body {margin: 0} body > pre { padding: 10px } pre {margin: 0; padding: 0px}</style></head><body>",
+                    output,
+                    "</body></html>\n"))))
+            } else {
+                for line in buffer.lines() {
+                    let ranges: Vec<(Style, &str)> = highlighter.highlight(line);
+                    let escaped;
+                    escaped = as_24_bit_terminal_escaped(&ranges[..], false);
+                    output += &format!("{}\n", escaped);
+                }
+                Ok(Response::with((status::Ok, output)))
+            }
+        },
+        // no syntax highlighting
+        None => {
+            Ok(Response::with((status::Ok, buffer)))
+        }
+    }
 }
 
 fn delete(req: &mut Request) -> IronResult<Response> {
-    let ref id = req.extensions.get::<Router>().unwrap().find("paste_id").unwrap_or("/");
-    let ref key = req.extensions.get::<Router>().unwrap().find("key").unwrap_or("/");
+    let params = req.extensions.get::<Router>().unwrap();
+    let ref id = params.find("paste_id").unwrap_or("/");
+    let ref key = params.find("key").unwrap_or("/");
     // verify file
     let path = format!("uploads/{id}", id = id);
     if !Path::new(&path).exists() {
@@ -157,9 +200,13 @@ fn delete(req: &mut Request) -> IronResult<Response> {
 }
 
 fn replace(req: &mut Request) -> IronResult<Response> {
+    // body parsing happens first because it does an immutable borrow
+    // TODO: determine how to now require this.
     let body = itry!(req.get::<bodyparser::Raw>()).unwrap();
-    let ref id  = req.extensions.get::<Router>().unwrap().find("paste_id").unwrap_or("/");
-    let ref key = req.extensions.get::<Router>().unwrap().find("key").unwrap_or("/");
+
+    let params = req.extensions.get::<Router>().unwrap();
+    let ref id = params.find("paste_id").unwrap_or("/");
+    let ref key = params.find("key").unwrap_or("/");
     // verify file
     let path = format!("uploads/{id}", id = id);
     if !Path::new(&path).exists() {
@@ -173,10 +220,6 @@ fn replace(req: &mut Request) -> IronResult<Response> {
     let mut f = itry!(File::create(path));
     itry!(f.write_all(body.as_bytes()));
     Ok(Response::with((status::Ok, format!("http://{socket}/{id} overwritten.\n", socket=SOCKET, id = id))))
-}
-
-fn invalid_method(_: &mut Request) -> IronResult<Response> {
-    Ok(Response::with((status::Ok, "You issued a GET request to an edit URL.\nTry PUT or DELETE instead, or remove the key.")))
 }
 
 fn generate_id(size: usize) -> String {
