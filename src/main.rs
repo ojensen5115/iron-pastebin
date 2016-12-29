@@ -52,6 +52,7 @@ fn main() {
     let mut router = Router::new();
     router.get("/", usage, "index");
     router.get("/:paste_id", retrieve, "retrieve");
+    router.get("/:paste_id/:key", invalid_method, "invalid_method");
     router.delete("/:paste_id/:key", delete, "delete");
     router.put("/:paste_id/:key", replace, "replace");
     router.post("/", submit, "submit");
@@ -169,6 +170,10 @@ fn replace(req: &mut Request) -> IronResult<Response> {
     let mut f = itry!(File::create(path));
     itry!(f.write_all(body.as_bytes()));
     Ok(Response::with((status::Ok, format!("http://{socket}/{id} overwritten.\n", socket=SOCKET, id = id))))
+}
+
+fn invalid_method(_: &mut Request) -> IronResult<Response> {
+    Ok(Response::with((status::Ok, "You issued a GET request to an edit URL.\nTry PUT or DELETE instead, or remove the key.")))
 }
 
 fn generate_id(size: usize) -> String {
