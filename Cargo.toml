@@ -8,6 +8,7 @@ version = "*"
 
 [dependencies]
 router = "*"
+params = "*"
 bodyparser = "*"
 
 rand = "*"

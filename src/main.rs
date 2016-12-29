@@ -1,6 +1,5 @@
 /*
 TODO:
-- Add a web form to the index where users can manually input new pastes. Accept the form at POST /. (need to use different content-type to differentiate)
 - Limit the upload to a maximum size. If the upload exceeds that size, return a 206 partial status code. Otherwise, return a 201 created status code.
 - Add a new route, GET /<id>/<lang> that syntax highlights the paste with ID <id> for language <lang>. If <lang> is not a known language, do no highlighting. Possibly validate <lang> with FromParam.
 - Use the testing module to write unit tests for your pastebin.
@@ -13,10 +12,12 @@ DONE:
 - Require that the key is present and matches when doing deletion.
 - Add a PUT /<id> route that allows a user with the <id> to replace the existing paste, if any.
 - Generate unique key for each paste, restrict PUT and DELETE to knowing this key
+- Add a web form to the index where users can manually input new pastes. Accept the form at POST /. (need to use different content-type to differentiate)
 */
 
 #[macro_use] extern crate iron;
 extern crate router;
+extern crate params;
 extern crate bodyparser;
 extern crate crypto;
 
@@ -33,11 +34,12 @@ use crypto::hmac::Hmac;
 use crypto::mac::Mac;
 use crypto::sha2::Sha256;
 
-//use iron::headers::ContentType;
-//use iron::modifiers::Header;
+use iron::headers::ContentType;
+use iron::modifiers::Header;
 use iron::prelude::*;
 use iron::status;
 
+use params::{Params, Value};
 use router::Router;
 
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -61,9 +63,11 @@ fn main() {
 
 
 
-
+// Note: webform is multipart/form-data so that raw post data yields None. Doing
+// so allows us to unambiguously differentiate between a "data" variable (from
+// the web form) and a raw post that happens contain urlencoded query params.
 fn usage(_: &mut Request) -> IronResult<Response> {
-    Ok(Response::with((status::Ok, /*Header(ContentType::html()),*/ format!("
+    Ok(Response::with((status::Ok, Header(ContentType::html()), format!("<html><head></head><body><pre>
     USAGE
 
       POST /
@@ -71,23 +75,41 @@ fn usage(_: &mut Request) -> IronResult<Response> {
           a page containing the body's content:
           eg: echo \"hello world\" | curl --data-binary @- http://{socket}
 
-      GET /<id>
-          retrieves the content for the paste with id `<id>`
+      GET /&lt;id&gt;
+          retrieves the content for the paste with id `&lt;id&gt;`
 
-      DELETE /<id>/<key>
-          deletes the paste with id `<id>`.
+      DELETE /&lt;id&gt;/&lt;key&gt;
+          deletes the paste with id `&lt;id&gt;`.
           eg: curl -X DELETE http://{socket}/fZWK3
 
-      PUT /<id>/<key>
-          replaces the contents of the paste with id `<id>`.
-          eg: echo \"hello world\" | curl -X PUT --data-binary @- http://{socket}", socket = SOCKET))))
+      PUT /&lt;id&gt;/&lt;key&gt;
+          replaces the contents of the paste with id `&lt;id&gt;`.
+          eg: echo \"hello world\" | curl -X PUT --data-binary @- http://{socket}</pre>
+    <hr>
+    or use this form:
+    <form method=\"post\" enctype=\"multipart/form-data\">
+     <textarea name=\"data\" style=\"display: block; width: 500px; height: 300px\"></textarea>
+     <input type=\"submit\">
+    </form>
+    </body></html>", socket = SOCKET))))
 }
 
 
 
 fn submit(req: &mut Request) -> IronResult<Response> {
-    let body = itry!(req.get::<bodyparser::Raw>()).unwrap();
-
+    // get paste contents, either raw post or data param
+    let raw_body = itry!(req.get::<bodyparser::Raw>());
+    let paste = match raw_body {
+        Some(paste) => paste,
+        None => {
+            let params = req.get_ref::<Params>().unwrap();
+            match params.find(&[&"data"]) {
+                Some(&Value::String(ref data)) => data.clone().to_string(),
+                _ => panic!("no paste data")
+            }
+        }
+    };
+    // get paste ID and URL
     let mut id: String;
     let mut path: String;
     loop {
@@ -100,7 +122,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
     let url = format!("http://{socket}/{id}", socket = SOCKET, id = id);
 
     let mut f = itry!(File::create(path));
-    itry!(f.write_all(body.as_bytes()));
+    itry!(f.write_all(paste.as_bytes()));
     Ok(Response::with((status::Ok, format!("{url}\nkey: {key}\n", url = url, key = gen_key(id)))))
 }
 
@@ -119,12 +141,12 @@ fn delete(req: &mut Request) -> IronResult<Response> {
     let ref key = req.extensions.get::<Router>().unwrap().find("key").unwrap_or("/");
     // verify key
     if *key != gen_key(id.to_string()) {
-        return Ok(Response::with((status::Ok, "invalid key\n")));
+        return Ok(Response::with((status::Unauthorized, "invalid key\n")));
     }
     // verify file
     let path = format!("uploads/{id}", id = id);
     if !Path::new(&path).exists() {
-        return Ok(Response::with((status::Ok, format!("Paste {} does not exist.\n", id))));
+        return Ok(Response::with((status::NotFound, format!("Paste {} does not exist.\n", id))));
     }
     itry!(fs::remove_file(path));
     Ok(Response::with((status::Ok, format!("Paste {} deleted.\n", id))))
@@ -136,12 +158,12 @@ fn replace(req: &mut Request) -> IronResult<Response> {
     let ref key = req.extensions.get::<Router>().unwrap().find("key").unwrap_or("/");
     // verify key
     if *key != gen_key(id.to_string()) {
-        return Ok(Response::with((status::Ok, "invalid key\n")));
+        return Ok(Response::with((status::Unauthorized, "invalid key\n")));
     }
     // verify file
     let path = format!("uploads/{id}", id = id);
     if !Path::new(&path).exists() {
-        return Ok(Response::with((status::Ok, format!("Paste {} does not exist.\n", id))));
+        return Ok(Response::with((status::NotFound, format!("Paste {} does not exist.\n", id))));
     }
 
     let mut f = itry!(File::create(path));
