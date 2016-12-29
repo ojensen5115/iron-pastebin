@@ -45,7 +45,7 @@ use router::Router;
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const HMAC_KEY: &'static [u8] = b"this is my hmac key lol :) 3456789*&^%$#W";
 const ID_LEN: usize = 5;
-const KEY_LEN: usize = 5;
+const KEY_BYTES: usize = 8;
 const SOCKET: &'static str = "localhost:3000";
 
 fn main() {
@@ -184,5 +184,9 @@ fn gen_key(input: String) -> String {
     let mut hmac = Hmac::new(Sha256::new(), HMAC_KEY);
     hmac.input(input.as_bytes());
     let hmac_result = hmac.result();
-    hmac_result.code().iter().take(KEY_LEN).map(|b| format!("{:02X}", b)).collect()
+    let key: String = hmac_result.code().iter()
+        .take(KEY_BYTES)
+        .map(|b| format!("{:02X}", b))
+        .collect();
+    key.to_lowercase()
 }
