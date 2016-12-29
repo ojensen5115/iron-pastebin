@@ -123,7 +123,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
 
     let mut f = itry!(File::create(path));
     itry!(f.write_all(paste.as_bytes()));
-    Ok(Response::with((status::Ok, format!("{url}\nkey: {key}\n", url = url, key = gen_key(id)))))
+    Ok(Response::with((status::Ok, format!("View URL: {url}\nEdit URL: {url}/{key}\n", url = url, key = gen_key(id)))))
 }
 
 fn retrieve(req: &mut Request) -> IronResult<Response> {
