@@ -1,7 +1,6 @@
 /*
 TODO:
 - Limit the upload to a maximum size. If the upload exceeds that size, return a 206 partial status code. Otherwise, return a 201 created status code.
-- Add a new route, GET /<id>/<lang> that syntax highlights the paste with ID <id> for language <lang>. If <lang> is not a known language, do no highlighting. Possibly validate <lang> with FromParam.
 - Use the testing module to write unit tests for your pastebin.
 - Dispatch a thread before launching Iron in main that periodically cleans up idling old pastes in upload/.
 - Replace calls to unwrap etc. references with actual error handling
@@ -14,6 +13,7 @@ DONE:
 - Add a PUT /<id> route that allows a user with the <id> to replace the existing paste, if any.
 - Generate unique key for each paste, restrict PUT and DELETE to knowing this key
 - Add a web form to the index where users can manually input new pastes. Accept the form at POST /. (need to use different content-type to differentiate)
+- Add a new route, GET /<id>/<lang> that syntax highlights the paste with ID <id> for language <lang>. If <lang> is not a known language, do no highlighting. Possibly validate <lang> with FromParam.
 */
 
 #[macro_use] extern crate iron;
@@ -85,10 +85,14 @@ fn usage(_: &mut Request) -> IronResult<Response> {
           a page containing the body's content:
           eg: echo \"hello world\" | curl --data-binary @- http://{socket}
 
-      GET /&lt;id&gt;/&lt;?ext&gt;
-          retrieves the content for the paste with id `&lt;id&gt;`. Optional parameter
-          'ext' defines a file extension for syntax highlighting
-          eg: curl http://{socket}/{id}/{lang}
+      GET /&lt;id&gt;
+          retrieves the content for the paste with id `&lt;id&gt;`.
+          eg: curl http://{socket}/{id}
+
+      GET /&lt;id&gt;/&lt;ext&gt;
+          retrieves the contents of the paste with id `id`, with syntax highlighting
+          associated with the file extension `ext`.
+          eg: curl http://{socket}/{id}/{ext}
 
       DELETE /&lt;id&gt;/&lt;key&gt;
           deletes the paste with id `&lt;id&gt;`.
@@ -103,7 +107,7 @@ fn usage(_: &mut Request) -> IronResult<Response> {
      <textarea name=\"data\" style=\"display: block; width: 500px; height: 300px\"></textarea>
      <input type=\"submit\">
     </form>
-    </body></html>", socket = SOCKET, id = "fZWK3", key = "a7772362cf6e2c36", lang = "rs"))))
+    </body></html>\n", socket = SOCKET, id = "MySrc", key = "a7772362cf6e2c36", ext = "rs"))))
 }
 
 
