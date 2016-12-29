@@ -42,11 +42,11 @@ use iron::status;
 use params::{Params, Value};
 use router::Router;
 
+const SOCKET: &'static str = "localhost:3000";
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const HMAC_KEY: &'static [u8] = b"this is my hmac key lol :) 3456789*&^%$#W";
 const ID_LEN: usize = 5;
 const KEY_BYTES: usize = 8;
-const SOCKET: &'static str = "localhost:3000";
 
 fn main() {
     let mut router = Router::new();
@@ -67,6 +67,7 @@ fn main() {
 // Note: webform is multipart/form-data so that raw post data yields None. Doing
 // so allows us to unambiguously differentiate between a "data" variable (from
 // the web form) and a raw post that happens contain urlencoded query params.
+// TODO: determine if it is poor style to have multipart forms without file upload?
 fn usage(_: &mut Request) -> IronResult<Response> {
     Ok(Response::with((status::Ok, Header(ContentType::html()), format!("<html><head></head><body><pre>
     USAGE
@@ -104,6 +105,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
     let paste = match raw_body {
         Some(paste) => paste,
         None => {
+            // TODO: determine why this needs .get_ref, when we used .get above for raw post
             let params = req.get_ref::<Params>().unwrap();
             match params.find(&[&"data"]) {
                 Some(&Value::String(ref data)) => data.clone().to_string(),
@@ -141,14 +143,14 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
 fn delete(req: &mut Request) -> IronResult<Response> {
     let ref id = req.extensions.get::<Router>().unwrap().find("paste_id").unwrap_or("/");
     let ref key = req.extensions.get::<Router>().unwrap().find("key").unwrap_or("/");
-    // verify key
-    if *key != gen_key(id.to_string()) {
-        return Ok(Response::with((status::Unauthorized, "Invalid key.\n")));
-    }
     // verify file
     let path = format!("uploads/{id}", id = id);
     if !Path::new(&path).exists() {
         return Ok(Response::with((status::NotFound, format!("Paste {} does not exist.\n", id))));
+    }
+    // verify key
+    if *key != gen_key(id.to_string()) {
+        return Ok(Response::with((status::Unauthorized, "Invalid key.\n")));
     }
     itry!(fs::remove_file(path));
     Ok(Response::with((status::Ok, format!("Paste {} deleted.\n", id))))
@@ -158,14 +160,14 @@ fn replace(req: &mut Request) -> IronResult<Response> {
     let body = itry!(req.get::<bodyparser::Raw>()).unwrap();
     let ref id  = req.extensions.get::<Router>().unwrap().find("paste_id").unwrap_or("/");
     let ref key = req.extensions.get::<Router>().unwrap().find("key").unwrap_or("/");
-    // verify key
-    if *key != gen_key(id.to_string()) {
-        return Ok(Response::with((status::Unauthorized, "Invalid key.\n")));
-    }
     // verify file
     let path = format!("uploads/{id}", id = id);
     if !Path::new(&path).exists() {
         return Ok(Response::with((status::NotFound, format!("Paste {} does not exist.\n", id))));
+    }
+    // verify key
+    if *key != gen_key(id.to_string()) {
+        return Ok(Response::with((status::Unauthorized, "Invalid key.\n")));
     }
 
     let mut f = itry!(File::create(path));
