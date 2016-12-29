@@ -77,7 +77,9 @@ fn main() {
 // so allows us to unambiguously differentiate between a "data" variable (from
 // the web form) and a raw post that happens contain urlencoded query params.
 // TODO: determine if it is poor style to have multipart forms without file upload?
-fn usage(_: &mut Request) -> IronResult<Response> {
+fn usage(req: &mut Request) -> IronResult<Response> {
+    Ok(Response::with((status::Ok, Header(ContentType::html()), format!("{:?}", req)))
+    
     Ok(Response::with((status::Ok, Header(ContentType::html()), format!("<html><head></head><body><pre>
     USAGE
 
