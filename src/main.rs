@@ -74,6 +74,7 @@ fn main() {
     router.get("/", usage, "index");
     router.get("/:paste_id", retrieve, "retrieve");
     router.get("/:paste_id/:lang", retrieve, "retrieve_lang");
+    router.delete("/:paste_id", delete, "delete_nokey");
     router.delete("/:paste_id/:key", delete, "delete");
     router.put("/:paste_id/:key", replace, "replace");
     router.post("/", submit, "submit");
@@ -216,30 +217,20 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
 }
 
 fn delete(req: &mut Request) -> IronResult<Response> {
-    let id = match validate_key_id(req) {
-        Ok(id) => id,
-        _ => return Ok(Response::with((status::Unauthorized, format!("Invalid key supplied.\n"))))
+    let (id, path) = match validate_key_id(req) {
+        Ok((id, path)) => (id, path),
+        Err(reason) => return Ok(Response::with((status::BadRequest, format!("Invalid request: {}.\n", reason))))
     };
-    // verify file
-    let path = format!("uploads/{id}", id = id);
-    if !Path::new(&path).exists() {
-        return Ok(Response::with((status::NotFound, format!("Paste {} does not exist.\n", id))));
-    }
     // delete file
     itry!(fs::remove_file(path));
     Ok(Response::with((status::Ok, format!("Paste {} deleted.\n", id))))
 }
 
 fn replace(req: &mut Request) -> IronResult<Response> {
-    let id = match validate_key_id(req) {
-        Ok(id) => id,
-        _ => return Ok(Response::with((status::Unauthorized, format!("Invalid key supplied.\n"))))
+    let (id, path) = match validate_key_id(req) {
+        Ok((id, path)) => (id, path),
+        Err(reason) => return Ok(Response::with((status::BadRequest, format!("Invalid request: {}.\n", reason))))
     };
-    // verify file
-    let path = format!("uploads/{id}", id = id);
-    if !Path::new(&path).exists() {
-        return Ok(Response::with((status::NotFound, format!("Paste {} does not exist.\n", id))));
-    }
     // write body
     let body = itry!(req.get::<bodyparser::Raw>()).unwrap();
     let mut f = itry!(File::create(path));
@@ -247,15 +238,18 @@ fn replace(req: &mut Request) -> IronResult<Response> {
     Ok(Response::with((status::Ok, format!("http://{socket}/{id} overwritten.\n", socket=SOCKET, id = id))))
 }
 
-fn validate_key_id(req: &Request) -> Result<String, String> {
+fn validate_key_id(req: &Request) -> Result<(String, String), String> {
     let params = req.extensions.get::<Router>().unwrap();
     let id = params.find("paste_id").unwrap_or("").to_string();
-    let key = params.find("key").unwrap_or("");
-    if key == gen_key(&id) {
-        return Ok(id)
-    } else {
-        Err("Key is not valid".to_string())
+    let path = format!("uploads/{id}", id = id);
+    if !Path::new(&path).exists() {
+        return Err(format!("Paste {} does not exist", id));
     }
+    let key = params.find("key").unwrap_or("");
+    if key != gen_key(&id) {
+        return Err("Key is not valid".to_string());
+    }
+    return Ok((id, path));
 }
 
 fn generate_id(size: usize) -> String {
