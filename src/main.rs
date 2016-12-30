@@ -111,6 +111,12 @@ enum HighlightedText {
 
 
 fn main() {
+    if HMAC_KEY.as_bytes().len() == 0 {
+        println!("You must set a key in hmac_key.txt");
+        std::process::exit(1);
+    }
+
+
     let mut router = Router::new();
     router.get("/", usage, "index");
     router.get("/webupload", webupload, "webupload");
