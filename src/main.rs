@@ -58,6 +58,24 @@ const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl
 const HMAC_KEY: &'static [u8] = b"this is my hmac key lol :) 3456789*&^%$#W";
 const ID_LEN: usize = 5;
 const KEY_BYTES: usize = 8;
+const HTML_HIGHLIGHT_HEAD: &'static str = "<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+body {
+    margin: 0
+}
+body > pre {
+    padding: 10px
+}
+pre {
+    margin: 0;
+    padding: 0px
+}
+    </style>
+  </head>
+  <body>";
+const HTML_HIGHLIGHT_FOOT: &'static str = "</body>\n</html>\n";
 
 struct HighlighterData {
     ss: SyntaxSet,
@@ -67,6 +85,12 @@ impl Key for HighlighterData { type Value = HighlighterData; }
 // TODO: why do we need these? why isn't this safe?
 unsafe impl Send for HighlighterData {}
 unsafe impl Sync for HighlighterData {}
+
+#[derive(Debug)]
+enum HighlightedText {
+    Terminal(String),
+    Html(String)
+}
 
 
 fn main() {
@@ -186,27 +210,17 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
     match lang {
         Some(lang) => {
             // syntax highlighting
-            let syntax = highlighter_data.ss.find_syntax_by_extension(lang).unwrap_or_else(|| highlighter_data.ss.find_syntax_plain_text());
-            let mut output = String::new();
             let show_html_output = match req.headers.get::<UserAgent>() {
                 Some(&UserAgent(ref string)) => &string[..5] != "curl/",
                 _ => true
             };
-            if show_html_output {
-                output = highlighted_snippet_for_string(&buffer, syntax, &highlighter_data.theme);
-                Ok(Response::with((status::Ok, Header(ContentType::html()), format!("{}{}{}",
-                    "<html><head><style>body {margin: 0} body > pre { padding: 10px } pre {margin: 0; padding: 0px}</style></head><body>",
-                    output,
-                    "</body></html>\n"))))
-            } else {
-                let mut highlighter = HighlightLines::new(syntax, &highlighter_data.theme);
-                for line in buffer.lines() {
-                    let ranges: Vec<(Style, &str)> = highlighter.highlight(line);
-                    let escaped;
-                    escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-                    output += &format!("{}\n", escaped);
-                }
-                Ok(Response::with((status::Ok, output)))
+
+            match highlight(buffer, lang, show_html_output, highlighter_data) {
+                HighlightedText::Terminal(s) => Ok(Response::with((status::Ok, s))),
+                HighlightedText::Html(s) => Ok(Response::with((
+                    status::Ok,
+                    Header(ContentType::html()),
+                    String::from(HTML_HIGHLIGHT_HEAD) + &s + HTML_HIGHLIGHT_FOOT)))
             }
         },
         // no syntax highlighting
@@ -270,4 +284,21 @@ fn gen_key(input: &str) -> String {
         .map(|b| format!("{:02X}", b))
         .collect();
     key.to_lowercase()
+}
+
+fn highlight(buffer: String, lang: &str, html: bool, highlighter_data: &HighlighterData) -> HighlightedText {
+    let syntax = highlighter_data.ss.find_syntax_by_extension(lang).unwrap_or_else(|| highlighter_data.ss.find_syntax_plain_text());
+    if html {
+        HighlightedText::Html(highlighted_snippet_for_string(&buffer, syntax, &highlighter_data.theme))
+    } else {
+        let mut highlighter = HighlightLines::new(syntax, &highlighter_data.theme);
+        let mut output = String::new();
+        for line in buffer.lines() {
+            let ranges: Vec<(Style, &str)> = highlighter.highlight(line);
+            let escaped;
+            escaped = as_24_bit_terminal_escaped(&ranges[..], false);
+            output += &format!("{}\n", escaped);
+        }
+        HighlightedText::Terminal(output)
+    }
 }
