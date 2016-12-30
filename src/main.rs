@@ -86,6 +86,13 @@ lazy_static! {
         file.read_to_string(&mut key).expect("reading HMAC key file");
         key
     };
+
+    static ref HIGHLIGHTER_DATA: HighlighterData = {
+        let ss = SyntaxSet::load_defaults_nonewlines();
+        let ts = ThemeSet::load_defaults();
+        let ref theme = ts.themes["base16-eighties.dark"];
+        HighlighterData {ss: ss, theme: theme.clone()}
+    };
 }
 
 struct HighlighterData {
@@ -116,15 +123,7 @@ fn main() {
     router.put("/:paste_id/:key", replace, "replace");
     router.post("/", submit, "submit");
 
-    let mut chain = Chain::new(router);
-
-    let ss = SyntaxSet::load_defaults_nonewlines();
-    let ts = ThemeSet::load_defaults();
-    let ref theme = ts.themes["base16-eighties.dark"];
-    let highlighter_data = HighlighterData {ss: ss, theme: theme.clone()};
-    chain.link(persistent::Read::<HighlighterData>::both(highlighter_data));
-
-    let server = Iron::new(chain).http(SOCKET).unwrap();
+    let server = Iron::new(router).http(SOCKET).unwrap();
     println!("listening on http://{} ({})", SOCKET, server.socket);
 }
 
@@ -221,10 +220,6 @@ fn submit(req: &mut Request) -> IronResult<Response> {
 }
 
 fn retrieve(req: &mut Request) -> IronResult<Response> {
-    // TODO: borrow checker wants this above params, but that's not ideal...
-    let arc = req.get::<persistent::Read<HighlighterData>>().expect("getting arc for highlighting");
-    let highlighter_data = arc.as_ref();
-    // ok now that's out of the way, lets get params
     let params = req.extensions.get::<Router>().unwrap();
     // TODO: "ref" appears unnecessary -- determine why it's here
     let ref id = params.find("paste_id").unwrap_or("");
@@ -238,7 +233,7 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
         Some(lang) => {
             // syntax highlighting
             let html_output = is_curl(req);
-            match highlight(buffer, lang, html_output, highlighter_data) {
+            match highlight(buffer, lang, html_output) {
                 HighlightedText::Terminal(s) => Ok(Response::with((status::Ok, s))),
                 HighlightedText::Html(s) => Ok(Response::with((
                     status::Ok,
@@ -317,15 +312,15 @@ fn is_curl(req: &Request) -> bool {
     }
 }
 
-fn highlight(buffer: String, lang: &str, html: bool, highlighter_data: &HighlighterData) -> HighlightedText {
-    let syntax = highlighter_data.ss.find_syntax_by_extension(lang).unwrap_or_else(|| highlighter_data.ss.find_syntax_plain_text());
+fn highlight(buffer: String, lang: &str, html: bool) -> HighlightedText {
+    let syntax = HIGHLIGHTER_DATA.ss.find_syntax_by_extension(lang).unwrap_or_else(|| HIGHLIGHTER_DATA.ss.find_syntax_plain_text());
     if syntax.name == "Plain Text" {
         return HighlightedText::Error(format!("Requested highlight \"{}\" not available", lang));
     }
     if html {
-        HighlightedText::Html(highlighted_snippet_for_string(&buffer, syntax, &highlighter_data.theme))
+        HighlightedText::Html(highlighted_snippet_for_string(&buffer, syntax, &HIGHLIGHTER_DATA.theme))
     } else {
-        let mut highlighter = HighlightLines::new(syntax, &highlighter_data.theme);
+        let mut highlighter = HighlightLines::new(syntax, &HIGHLIGHTER_DATA.theme);
         let mut output = String::new();
         for line in buffer.lines() {
             let ranges: Vec<(Style, &str)> = highlighter.highlight(line);
