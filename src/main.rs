@@ -1,7 +1,7 @@
 /*
 TODO:
-- Limit the upload to a maximum size. If the upload exceeds that size, return a 206 partial status code. Otherwise, return a 201 created status code.
-- Use the testing module to write unit tests for your pastebin.
+- Limit the upload to a maximum size, returning a 206 partial status on size exceeded.
+- Write unit tests.
 - Dispatch a thread before launching Iron in main that periodically cleans up idling old pastes in upload/.
 - Replace calls to unwrap etc. references with actual error handling
 
@@ -206,7 +206,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
 
     let mut f = itry!(File::create(path));
     itry!(f.write_all(paste.as_bytes()));
-    Ok(Response::with((status::Ok, format!("View URL: {url}\nEdit URL: {url}/{key}\n", url = url, key = gen_key(&id)))))
+    Ok(Response::with((status::Created, format!("View URL: {url}\nEdit URL: {url}/{key}\n", url = url, key = gen_key(&id)))))
 }
 
 fn retrieve(req: &mut Request) -> IronResult<Response> {
