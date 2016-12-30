@@ -23,6 +23,8 @@ extern crate params;
 extern crate bodyparser;
 
 extern crate crypto;
+#[macro_use]
+extern crate lazy_static;
 extern crate rand;
 extern crate syntect;
 
@@ -55,7 +57,7 @@ use syntect::util::as_24_bit_terminal_escaped;
 
 const SOCKET: &'static str = "localhost:3000";
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-const HMAC_KEY: &'static [u8] = b"this is my hmac key lol :) 3456789*&^%$#W";
+//const HMAC_KEY: &'static [u8] = b"this is my hmac key lol :) 3456789*&^%$#W";
 const ID_LEN: usize = 5;
 const KEY_BYTES: usize = 8;
 const HTML_HIGHLIGHT_HEAD: &'static str = "<!DOCTYPE html>
@@ -76,6 +78,15 @@ pre {
   </head>
   <body>";
 const HTML_HIGHLIGHT_FOOT: &'static str = "</body>\n</html>\n";
+
+lazy_static! {
+    static ref HMAC_KEY: String = {
+        let mut file = File::open("hmac_key.txt").expect("opening HMAC key file");
+        let mut key = String::new();
+        file.read_to_string(&mut key).expect("reading HMAC key file");
+        key
+    };
+}
 
 struct HighlighterData {
     ss: SyntaxSet,
@@ -289,7 +300,7 @@ fn generate_id(size: usize) -> String {
 }
 
 fn gen_key(input: &str) -> String {
-    let mut hmac = Hmac::new(Sha256::new(), HMAC_KEY);
+    let mut hmac = Hmac::new(Sha256::new(), HMAC_KEY.as_bytes());
     hmac.input(input.as_bytes());
     let hmac_result = hmac.result();
     let key: String = hmac_result.code().iter()
