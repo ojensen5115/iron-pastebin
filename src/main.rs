@@ -64,7 +64,7 @@ struct HighlighterData {
     theme: Theme
 }
 impl Key for HighlighterData { type Value = HighlighterData; }
-// TODO: why do we need these? how do we make them sefe? it's read only after all
+// TODO: why do we need these? why isn't this safe?
 unsafe impl Send for HighlighterData {}
 unsafe impl Sync for HighlighterData {}
 
@@ -133,7 +133,11 @@ fn usage(_: &mut Request) -> IronResult<Response> {
 // TODO: determine whether bodyparser can replace Params ("parses body into a struct using Serde")
 fn submit(req: &mut Request) -> IronResult<Response> {
     // get paste contents, either raw post or data param
-    let raw_body = itry!(req.get::<bodyparser::Raw>());
+    //let raw_body = itry!(req.get::<bodyparser::Raw>());
+    let raw_body = match req.get::<bodyparser::Raw>() {
+        Ok(body) => body,
+        Err(e) => return Ok(Response::with((status::BadRequest, format!("Invalid paste data submitted: {}.\n", e.detail))))
+    };
     let paste = match raw_body {
         Some(paste) => paste,
         None => {
@@ -141,7 +145,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
             let params = req.get_ref::<Params>().unwrap();
             match params.find(&[&"data"]) {
                 Some(&Value::String(ref data)) => data.clone().to_string(),
-                _ => panic!("no paste data")
+                _ => return Ok(Response::with((status::BadRequest, "No paste data submitted.\n")))
             }
         }
     };
@@ -161,7 +165,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
 
     let mut f = itry!(File::create(path));
     itry!(f.write_all(paste.as_bytes()));
-    Ok(Response::with((status::Ok, format!("View URL: {url}\nEdit URL: {url}/{key}\n", url = url, key = gen_key(id)))))
+    Ok(Response::with((status::Ok, format!("View URL: {url}\nEdit URL: {url}/{key}\n", url = url, key = gen_key(&id)))))
 }
 
 fn retrieve(req: &mut Request) -> IronResult<Response> {
@@ -184,8 +188,7 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
             let syntax = highlighter_data.ss.find_syntax_by_extension(lang).unwrap_or_else(|| highlighter_data.ss.find_syntax_plain_text());
             let mut output = String::new();
             let show_html_output = match req.headers.get::<UserAgent>() {
-                // TODO: are these calls to to_string() necessary?
-                Some(&UserAgent(ref string)) => string[..5].to_string() != "curl/".to_string(),
+                Some(&UserAgent(ref string)) => &string[..5] != "curl/",
                 _ => true
             };
             if show_html_output {
@@ -213,43 +216,46 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
 }
 
 fn delete(req: &mut Request) -> IronResult<Response> {
-    let params = req.extensions.get::<Router>().unwrap();
-    let ref id = params.find("paste_id").unwrap_or("/");
-    let ref key = params.find("key").unwrap_or("/");
+    let id = match validate_key_id(req) {
+        Ok(id) => id,
+        _ => return Ok(Response::with((status::Unauthorized, format!("Invalid key supplied.\n"))))
+    };
     // verify file
     let path = format!("uploads/{id}", id = id);
     if !Path::new(&path).exists() {
         return Ok(Response::with((status::NotFound, format!("Paste {} does not exist.\n", id))));
     }
-    // verify key
-    if *key != gen_key(id.to_string()) {
-        return Ok(Response::with((status::Unauthorized, "Invalid key.\n")));
-    }
+    // delete file
     itry!(fs::remove_file(path));
     Ok(Response::with((status::Ok, format!("Paste {} deleted.\n", id))))
 }
 
 fn replace(req: &mut Request) -> IronResult<Response> {
-    // body parsing happens first because it does an immutable borrow
-    // TODO: determine how to now require this.
-    let body = itry!(req.get::<bodyparser::Raw>()).unwrap();
-
-    let params = req.extensions.get::<Router>().unwrap();
-    let ref id = params.find("paste_id").unwrap_or("/");
-    let ref key = params.find("key").unwrap_or("/");
+    let id = match validate_key_id(req) {
+        Ok(id) => id,
+        _ => return Ok(Response::with((status::Unauthorized, format!("Invalid key supplied.\n"))))
+    };
     // verify file
     let path = format!("uploads/{id}", id = id);
     if !Path::new(&path).exists() {
         return Ok(Response::with((status::NotFound, format!("Paste {} does not exist.\n", id))));
     }
-    // verify key
-    if *key != gen_key(id.to_string()) {
-        return Ok(Response::with((status::Unauthorized, "Invalid key.\n")));
-    }
-
+    // write body
+    let body = itry!(req.get::<bodyparser::Raw>()).unwrap();
     let mut f = itry!(File::create(path));
     itry!(f.write_all(body.as_bytes()));
     Ok(Response::with((status::Ok, format!("http://{socket}/{id} overwritten.\n", socket=SOCKET, id = id))))
+}
+
+fn validate_key_id(req: &Request) -> Result<String, String> {
+    let params = req.extensions.get::<Router>().unwrap();
+    let id = params.find("paste_id").unwrap_or("").to_string();
+    let key = params.find("key").unwrap_or("");
+    if key == gen_key(&id) {
+        return Ok(id)
+    } else {
+        Err("Key is not valid".to_string())
+    }
 }
 
 fn generate_id(size: usize) -> String {
@@ -261,7 +267,7 @@ fn generate_id(size: usize) -> String {
     id
 }
 
-fn gen_key(input: String) -> String {
+fn gen_key(input: &str) -> String {
     let mut hmac = Hmac::new(Sha256::new(), HMAC_KEY);
     hmac.input(input.as_bytes());
     let hmac_result = hmac.result();
