@@ -18,6 +18,7 @@ DONE:
 
 #[macro_use] extern crate iron;
 extern crate router;
+extern crate persistent;
 extern crate params;
 extern crate bodyparser;
 
@@ -35,6 +36,7 @@ use iron::headers::{ContentType, UserAgent};
 use iron::modifiers::Header;
 use iron::prelude::*;
 use iron::status;
+use iron::typemap::Key;
 
 use params::{Params, Value};
 use router::Router;
@@ -46,7 +48,7 @@ use crypto::sha2::Sha256;
 use rand::Rng;
 
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{ThemeSet, Style};
+use syntect::highlighting::{Theme, ThemeSet, Style};
 use syntect::html::highlighted_snippet_for_string;
 use syntect::parsing::SyntaxSet;
 use syntect::util::as_24_bit_terminal_escaped;
@@ -57,6 +59,16 @@ const HMAC_KEY: &'static [u8] = b"this is my hmac key lol :) 3456789*&^%$#W";
 const ID_LEN: usize = 5;
 const KEY_BYTES: usize = 8;
 
+struct HighlighterData {
+    ss: SyntaxSet,
+    theme: Theme
+}
+impl Key for HighlighterData { type Value = HighlighterData; }
+// TODO: why do we need these? how do we make them sefe? it's read only after all
+unsafe impl Send for HighlighterData {}
+unsafe impl Sync for HighlighterData {}
+
+
 fn main() {
     let mut router = Router::new();
     router.get("/", usage, "index");
@@ -66,10 +78,17 @@ fn main() {
     router.put("/:paste_id/:key", replace, "replace");
     router.post("/", submit, "submit");
 
-    let server = Iron::new(router).http(SOCKET).unwrap();
+    let mut chain = Chain::new(router);
+
+    let ss = SyntaxSet::load_defaults_nonewlines();
+    let ts = ThemeSet::load_defaults();
+    let ref theme = ts.themes["base16-eighties.dark"];
+    let highlighter_data = HighlighterData {ss: ss, theme: theme.clone()};
+    chain.link(persistent::Read::<HighlighterData>::both(highlighter_data));
+
+    let server = Iron::new(chain).http(SOCKET).unwrap();
     println!("listening on http://{} ({})", SOCKET, server.socket);
 }
-
 
 
 // Note: webform is multipart/form-data so that raw post data yields None. Doing
@@ -146,6 +165,10 @@ fn submit(req: &mut Request) -> IronResult<Response> {
 }
 
 fn retrieve(req: &mut Request) -> IronResult<Response> {
+    // TODO: borrow checker wants this above params, but that's not ideal...
+    let arc = req.get::<persistent::Read<HighlighterData>>().expect("getting arc for highlighting");
+    let highlighter_data = arc.as_ref();
+    // ok now that's out of the way, lets get params
     let params = req.extensions.get::<Router>().unwrap();
     // TODO: "ref" appears unnecessary -- determine why it's here
     let ref id = params.find("paste_id").unwrap_or("");
@@ -158,10 +181,7 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
     match lang {
         Some(lang) => {
             // syntax highlighting
-            let ss = SyntaxSet::load_defaults_nonewlines();
-            let ts = ThemeSet::load_defaults();
-            let syntax = ss.find_syntax_by_extension(lang).unwrap_or_else(|| ss.find_syntax_plain_text());
-            let mut highlighter = HighlightLines::new(syntax, &ts.themes["base16-eighties.dark"]);
+            let syntax = highlighter_data.ss.find_syntax_by_extension(lang).unwrap_or_else(|| highlighter_data.ss.find_syntax_plain_text());
             let mut output = String::new();
             let show_html_output = match req.headers.get::<UserAgent>() {
                 // TODO: are these calls to to_string() necessary?
@@ -169,12 +189,13 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
                 _ => true
             };
             if show_html_output {
-                output = highlighted_snippet_for_string(&buffer, syntax, &ts.themes["base16-eighties.dark"]);
+                output = highlighted_snippet_for_string(&buffer, syntax, &highlighter_data.theme);
                 Ok(Response::with((status::Ok, Header(ContentType::html()), format!("{}{}{}",
                     "<html><head><style>body {margin: 0} body > pre { padding: 10px } pre {margin: 0; padding: 0px}</style></head><body>",
                     output,
                     "</body></html>\n"))))
             } else {
+                let mut highlighter = HighlightLines::new(syntax, &highlighter_data.theme);
                 for line in buffer.lines() {
                     let ranges: Vec<(Style, &str)> = highlighter.highlight(line);
                     let escaped;
