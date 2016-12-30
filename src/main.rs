@@ -129,12 +129,14 @@ fn submit(req: &mut Request) -> IronResult<Response> {
     // get paste ID and URL
     let mut id: String;
     let mut path: String;
+    let mut double_id_len = ID_LEN * 2; // so we increase by 1 every two loops
     loop {
-        id = generate_id(ID_LEN);
+        id = generate_id(double_id_len / 2);
         path = format!("uploads/{id}", id = id);
         if !Path::new(&path).exists() {
             break;
         }
+        double_id_len += 1;
     }
     let url = format!("http://{socket}/{id}", socket = SOCKET, id = id);
 
