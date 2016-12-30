@@ -18,7 +18,6 @@ DONE:
 
 #[macro_use] extern crate iron;
 extern crate router;
-extern crate persistent;
 extern crate params;
 extern crate bodyparser;
 
@@ -57,7 +56,6 @@ use syntect::util::as_24_bit_terminal_escaped;
 
 const SOCKET: &'static str = "localhost:3000";
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-//const HMAC_KEY: &'static [u8] = b"this is my hmac key lol :) 3456789*&^%$#W";
 const ID_LEN: usize = 5;
 const KEY_BYTES: usize = 8;
 const HTML_HIGHLIGHT_HEAD: &'static str = "<!DOCTYPE html>
