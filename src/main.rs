@@ -89,13 +89,15 @@ unsafe impl Sync for HighlighterData {}
 #[derive(Debug)]
 enum HighlightedText {
     Terminal(String),
-    Html(String)
+    Html(String),
+    Error(String)
 }
 
 
 fn main() {
     let mut router = Router::new();
     router.get("/", usage, "index");
+    router.get("/webupload", webupload, "webupload");
     router.get("/:paste_id", retrieve, "retrieve");
     router.get("/:paste_id/:lang", retrieve, "retrieve_lang");
     router.delete("/:paste_id", delete, "delete_nokey");
@@ -115,43 +117,57 @@ fn main() {
     println!("listening on http://{} ({})", SOCKET, server.socket);
 }
 
+fn webupload(_: &mut Request) -> IronResult<Response> {
+    Ok(Response::with((status::Ok, Header(ContentType::html()), "<html><head></head><body>
+    Submit a paste using this form:
+    <form action=\"/\" method=\"post\" enctype=\"multipart/form-data\">
+     <textarea name=\"data\" style=\"display: block; width: 500px; height: 300px\"></textarea>
+     <input type=\"submit\">
+    </form>
+    </body></html>\n")))
+}
+
 
 // Note: webform is multipart/form-data so that raw post data yields None. Doing
 // so allows us to unambiguously differentiate between a "data" variable (from
 // the web form) and a raw post that happens contain urlencoded query params.
 // TODO: determine if it is poor style to have multipart forms without file upload?
 fn usage(_: &mut Request) -> IronResult<Response> {
-    Ok(Response::with((status::Ok, Header(ContentType::html()), format!("<html><head></head><body><pre>
-    USAGE
+    Ok(Response::with((status::Ok, format!("
+  USAGE
 
-      POST /
-          accepts raw data in the body of the request and responds with a URL of
-          a page containing the body's content:
-          eg: echo \"hello world\" | curl --data-binary @- http://{socket}
+    POST /
+      accepts raw data in the body of the request and responds with a URL of
+      a page containing the body's content:
+      eg: echo \"hello world\" | curl --data-binary @- http://{socket}
 
-      GET /&lt;id&gt;
-          retrieves the content for the paste with id `&lt;id&gt;`.
-          eg: curl http://{socket}/{id}
+    GET /<id>
+      retrieves the content for the paste with id `<id>`.
+      eg: curl http://{socket}/{id}
 
-      GET /&lt;id&gt;/&lt;ext&gt;
-          retrieves the contents of the paste with id `id`, with syntax highlighting
-          associated with the file extension `ext`.
-          eg: curl http://{socket}/{id}/{ext}
+    GET /<id>/<ext>
+      retrieves the contents of the paste with id `id`, with syntax highlighting
+      associated with the file extension `ext`.
+      eg: curl http://{socket}/{id}/{ext}
 
-      DELETE /&lt;id&gt;/&lt;key&gt;
-          deletes the paste with id `&lt;id&gt;`.
-          eg: curl -X DELETE http://{socket}/{id}/{key}
+    DELETE /<id>/<key>
+      deletes the paste with id `<id>`.
+      eg: curl -X DELETE http://{socket}/{id}/{key}
 
-      PUT /&lt;id&gt;/&lt;key&gt;
-          replaces the contents of the paste with id `&lt;id&gt;`.
-          eg: echo \"hello world\" | curl -X PUT --data-binary @- http://{socket}/{id}/{key}</pre>
-    <hr>
-    or use this form:
-    <form method=\"post\" enctype=\"multipart/form-data\">
-     <textarea name=\"data\" style=\"display: block; width: 500px; height: 300px\"></textarea>
-     <input type=\"submit\">
-    </form>
-    </body></html>\n", socket = SOCKET, id = "MySrc", key = "a7772362cf6e2c36", ext = "rs"))))
+    PUT /<id>/<key>
+      replaces the contents of the paste with id `<id>`.
+      eg: echo \"hello world\" | curl -X PUT --data-binary @- http://{socket}/{id}/{key}
+
+
+    You may find this .bashrc function useful (e.g. `cat file.txt | paste` or `paste file.txt`)
+
+    function paste() {{
+      local file=${{1:-/dev/stdin}}
+      curl --data-binary @${{file}} http://{socket}
+    }}
+
+    Alternatively, visit http://{socket}/webupload\n",
+    socket = SOCKET, id = "MySrc", key = "a7772362cf6e2c36", ext = "rs"))))
 }
 
 
@@ -210,17 +226,14 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
     match lang {
         Some(lang) => {
             // syntax highlighting
-            let show_html_output = match req.headers.get::<UserAgent>() {
-                Some(&UserAgent(ref string)) => &string[..5] != "curl/",
-                _ => true
-            };
-
-            match highlight(buffer, lang, show_html_output, highlighter_data) {
+            let html_output = is_curl(req);
+            match highlight(buffer, lang, html_output, highlighter_data) {
                 HighlightedText::Terminal(s) => Ok(Response::with((status::Ok, s))),
                 HighlightedText::Html(s) => Ok(Response::with((
                     status::Ok,
                     Header(ContentType::html()),
-                    String::from(HTML_HIGHLIGHT_HEAD) + &s + HTML_HIGHLIGHT_FOOT)))
+                    String::from(HTML_HIGHLIGHT_HEAD) + &s + HTML_HIGHLIGHT_FOOT))),
+                HighlightedText::Error(s) => Ok(Response::with((status::BadRequest, format!("Invalid request: {}.\n", s))))
             }
         },
         // no syntax highlighting
@@ -286,8 +299,18 @@ fn gen_key(input: &str) -> String {
     key.to_lowercase()
 }
 
+fn is_curl(req: &Request) -> bool {
+    match req.headers.get::<UserAgent>() {
+        Some(&UserAgent(ref string)) => &string[..5] != "curl/",
+        _ => true
+    }
+}
+
 fn highlight(buffer: String, lang: &str, html: bool, highlighter_data: &HighlighterData) -> HighlightedText {
     let syntax = highlighter_data.ss.find_syntax_by_extension(lang).unwrap_or_else(|| highlighter_data.ss.find_syntax_plain_text());
+    if syntax.name == "Plain Text" {
+        return HighlightedText::Error(format!("Requested highlight \"{}\" not available", lang));
+    }
     if html {
         HighlightedText::Html(highlighted_snippet_for_string(&buffer, syntax, &highlighter_data.theme))
     } else {
