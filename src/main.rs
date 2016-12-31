@@ -1,6 +1,5 @@
 /*
 TODO:
-- Use staticfiles for static files (e.g. webupload)
 - Fix unsafe use of SyntaxSet for highlighting
 - Limit the upload to a maximum size, returning a 206 partial status on size exceeded.
 - Write unit tests.
@@ -16,6 +15,7 @@ DONE:
 - Add a web form to the index where users can manually input new pastes. Accept the form at POST /. (need to use different content-type to differentiate)
 - Add a new route, GET /<id>/<lang> that syntax highlights the paste with ID <id> for language <lang>. If <lang> is not a known language, do no highlighting. Possibly validate <lang> with FromParam.
 - Use templates for templaty stuff (e.g. usage, HTML paste)
+- Use staticfiles for static files (e.g. webupload)
 */
 
 #[macro_use] extern crate iron;
