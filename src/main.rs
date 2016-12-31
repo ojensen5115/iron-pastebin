@@ -3,7 +3,6 @@ TODO:
 - Fix unsafe use of SyntaxSet for highlighting
 - Limit the upload to a maximum size, returning a 206 partial status on size exceeded.
 - Write unit tests.
-- Dispatch a thread before launching Iron in main that periodically cleans up idling old pastes in upload/.
 
 DONE:
 - Ensure generated PasteID is unique.
@@ -16,6 +15,7 @@ DONE:
 - Add a new route, GET /<id>/<lang> that syntax highlights the paste with ID <id> for language <lang>. If <lang> is not a known language, do no highlighting. Possibly validate <lang> with FromParam.
 - Use templates for templaty stuff (e.g. usage, HTML paste)
 - Use staticfiles for static files (e.g. webupload)
+- Dispatch a thread that periodically cleans up idling old pastes in uploads.
 */
 
 #[macro_use] extern crate iron;
@@ -38,6 +38,8 @@ use std::fs::File;
 use std::path::Path;
 use std::io::Write;
 use std::io::Read;
+use std::thread;
+use std::time;
 
 use iron::headers::{ContentType, UserAgent};
 use iron::modifiers::Header;
@@ -90,7 +92,8 @@ lazy_static! {
     };
 }
 
-// TODO: re unsafe wrapper, see https://github.com/trishume/syntect/issues/29
+// TODO: fix unsafe wrapper, see https://github.com/trishume/syntect/issues/29
+// and https://github.com/trishume/syntect/issues/20
 struct HighlighterSyntaxSet {
     ss: SyntaxSet,
 }
@@ -138,6 +141,26 @@ fn main() {
     let server = Iron::new(chain).http(SOCKET).unwrap();
 
     println!("listening on http://{} ({})", SOCKET, server.socket);
+
+    // every day, delete pastes > 30 days old
+    thread::spawn(move || {
+        let one_day = time::Duration::from_secs(60*60*24);
+        let thirty_days = one_day * 30;
+        loop {
+            let now = time::SystemTime::now();
+            println!("Deleting pastes over 30 days old!");
+            let files = fs::read_dir("./uploads").unwrap();
+            for file in files {
+                let path = file.unwrap().path();
+                let attr = fs::metadata(&path).unwrap();
+                let last_modified = attr.modified().expect("reading last accessed time");
+                if now.duration_since(last_modified).unwrap() > thirty_days {
+                    fs::remove_file(path).expect(&format!("deleting file"));
+                }
+            }
+            thread::sleep(one_day);
+        }
+    });
 }
 
 
@@ -147,7 +170,7 @@ fn usage(_: &mut Request) -> IronResult<Response> {
 
     let mut data = BTreeMap::new();
     data.insert("socket".to_string(), SOCKET.to_string());
-    data.insert("id".to_string(), "mYSrc".to_string());
+    data.insert("id".to_string(), "vxcRz".to_string());
     data.insert("key".to_string(), "a7772362cf6e2c36".to_string());
     data.insert("ext".to_string(), "rs".to_string());
 
@@ -205,7 +228,7 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
 
     let mut f = match File::open(format!("uploads/{id}", id = id)) {
         Ok(f) => f,
-        Err(_) => return Ok(Response::with((status::NotFound, format!("Paste {} does not exist", id))))
+        Err(_) => return Ok(Response::with((status::NotFound, format!("Paste {} does not exist\n", id))))
     };
 
     let mut buffer = String::new();
@@ -256,6 +279,10 @@ fn replace(req: &mut Request) -> IronResult<Response> {
     Ok(Response::with((status::Ok, format!("http://{socket}/{id} overwritten.\n", socket=SOCKET, id = id))))
 }
 
+
+
+
+
 fn validate_key_id(req: &Request) -> Result<(String, String), String> {
     let params = req.extensions.get::<Router>().unwrap();
     let id = params.find("paste_id").unwrap_or("").to_string();
@@ -269,9 +296,6 @@ fn validate_key_id(req: &Request) -> Result<(String, String), String> {
     }
     return Ok((id, path));
 }
-
-
-
 
 fn generate_id(size: usize) -> String {
     let mut id = String::with_capacity(size);
