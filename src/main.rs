@@ -20,6 +20,7 @@ DONE:
 extern crate router;
 extern crate params;
 extern crate bodyparser;
+extern crate handlebars_iron;
 
 extern crate crypto;
 #[macro_use]
@@ -27,6 +28,7 @@ extern crate lazy_static;
 extern crate rand;
 extern crate syntect;
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
@@ -40,6 +42,7 @@ use iron::status;
 
 use params::{Params, Value};
 use router::Router;
+use handlebars_iron::{HandlebarsEngine, DirectorySource, Template};
 
 use crypto::hmac::Hmac;
 use crypto::mac::Mac;
@@ -129,7 +132,18 @@ fn main() {
     router.put("/:paste_id/:key", replace, "replace");
     router.post("/", submit, "submit");
 
-    let server = Iron::new(router).http(SOCKET).unwrap();
+    let mut hbse = HandlebarsEngine::new();
+    hbse.add(Box::new(DirectorySource::new("./templates/", ".hbs")));
+
+    // load templates from all registered sources
+    if let Err(r) = hbse.reload() {
+      panic!("{}", r.cause);
+    }
+
+    let mut chain = Chain::new(router);
+    chain.link_after(hbse);
+    let server = Iron::new(chain).http(SOCKET).unwrap();
+
     println!("listening on http://{} ({})", SOCKET, server.socket);
 }
 
@@ -149,41 +163,17 @@ fn webupload(_: &mut Request) -> IronResult<Response> {
 // the web form) and a raw post that happens contain urlencoded query params.
 // TODO: determine if it is poor style to have multipart forms without file upload?
 fn usage(_: &mut Request) -> IronResult<Response> {
-    Ok(Response::with((status::Ok, format!("
-  USAGE
+    let mut resp = Response::new();
+    resp.set_mut(Header(ContentType::plaintext()));
 
-    POST /
-      accepts raw data in the body of the request and responds with a URL of
-      a page containing the body's content:
-      eg: echo \"hello world\" | curl --data-binary @- http://{socket}
+    let mut data = BTreeMap::new();
+    data.insert("socket".to_string(), SOCKET.to_string());
+    data.insert("id".to_string(), "mYSrc".to_string());
+    data.insert("key".to_string(), "a7772362cf6e2c36".to_string());
+    data.insert("ext".to_string(), "rs".to_string());
 
-    GET /<id>
-      retrieves the content for the paste with id `<id>`.
-      eg: curl http://{socket}/{id}
-
-    GET /<id>/<ext>
-      retrieves the contents of the paste with id `id`, with syntax highlighting
-      associated with the file extension `ext`.
-      eg: curl http://{socket}/{id}/{ext}
-
-    DELETE /<id>/<key>
-      deletes the paste with id `<id>`.
-      eg: curl -X DELETE http://{socket}/{id}/{key}
-
-    PUT /<id>/<key>
-      replaces the contents of the paste with id `<id>`.
-      eg: echo \"hello world\" | curl -X PUT --data-binary @- http://{socket}/{id}/{key}
-
-
-    You may find this .bashrc function useful (e.g. `cat file.txt | paste` or `paste file.txt`)
-
-    function paste() {{
-      local file=${{1:-/dev/stdin}}
-      curl --data-binary @${{file}} http://{socket}
-    }}
-
-    Alternatively, visit http://{socket}/webupload\n",
-    socket = SOCKET, id = "MySrc", key = "a7772362cf6e2c36", ext = "rs"))))
+    resp.set_mut(Template::new("index", data)).set_mut(status::Ok);
+    return Ok(resp);
 }
 
 
@@ -231,7 +221,11 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
     let ref id = params.find("paste_id").unwrap_or("");
     let lang = params.find("lang");
 
-    let mut f = itry!(File::open(format!("uploads/{id}", id = id)));
+    let mut f = match File::open(format!("uploads/{id}", id = id)) {
+        Ok(f) => f,
+        Err(_) => return Ok(Response::with((status::NotFound, format!("Paste {} does not exist", id))))
+    };
+
     let mut buffer = String::new();
     itry!(f.read_to_string(&mut buffer));
 
