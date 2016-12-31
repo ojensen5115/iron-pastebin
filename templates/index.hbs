@@ -9,7 +9,10 @@
 
  This application is a PasteBin clone written in Rust using the Iron framework.
  It is designed primarily to be used via the `curl` command, although it works
- from a browser too. Accepted requests are:
+ from a browser too. Pastes are deleted when they are 30 days old (since last
+ modification).
+
+ Accepted requests are:
 
  POST /
      Accepts raw data in the body of the request and responds with the View and

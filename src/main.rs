@@ -140,7 +140,7 @@ fn main() {
     chain.link_after(hbse);
     let server = Iron::new(chain).http(SOCKET).unwrap();
 
-    println!("listening on http://{} ({})", SOCKET, server.socket);
+    println!("Listening on http://{} ({})", SOCKET, server.socket);
 
     // every day, delete pastes > 30 days old
     thread::spawn(move || {
