@@ -1,10 +1,10 @@
 /*
 TODO:
 - Use staticfiles for static files (e.g. webupload)
+- Fix unsafe use of SyntaxSet for highlighting
 - Limit the upload to a maximum size, returning a 206 partial status on size exceeded.
 - Write unit tests.
 - Dispatch a thread before launching Iron in main that periodically cleans up idling old pastes in upload/.
-- Replace calls to unwrap etc. references with actual error handling
 
 DONE:
 - Ensure generated PasteID is unique.
@@ -23,6 +23,8 @@ extern crate router;
 extern crate params;
 extern crate bodyparser;
 extern crate handlebars_iron;
+extern crate staticfile;
+extern crate mount;
 
 extern crate crypto;
 #[macro_use]
@@ -42,9 +44,11 @@ use iron::modifiers::Header;
 use iron::prelude::*;
 use iron::status;
 
+use handlebars_iron::{HandlebarsEngine, DirectorySource, Template};
+use mount::Mount;
 use params::{Params, Value};
 use router::Router;
-use handlebars_iron::{HandlebarsEngine, DirectorySource, Template};
+use staticfile::Static;
 
 use crypto::hmac::Hmac;
 use crypto::mac::Mac;
@@ -110,7 +114,6 @@ fn main() {
 
     let mut router = Router::new();
     router.get("/", usage, "index");
-    router.get("/webupload", webupload, "webupload");
     router.get("/:paste_id", retrieve, "retrieve");
     router.get("/:paste_id/:lang", retrieve, "retrieve_lang");
     router.delete("/:paste_id", delete, "delete_nokey");
@@ -118,34 +121,25 @@ fn main() {
     router.put("/:paste_id/:key", replace, "replace");
     router.post("/", submit, "submit");
 
+    let mut mount = Mount::new();
+    mount.mount("/", router)
+         .mount("/webupload", Static::new(Path::new("./static/webupload.html")));
+
     let mut hbse = HandlebarsEngine::new();
     hbse.add(Box::new(DirectorySource::new("./templates/", ".hbs")));
 
     // load templates from all registered sources
     if let Err(r) = hbse.reload() {
-      panic!("{}", r.cause);
+        panic!("{}", r.cause);
     }
 
-    let mut chain = Chain::new(router);
+    let mut chain = Chain::new(mount);
     chain.link_after(hbse);
     let server = Iron::new(chain).http(SOCKET).unwrap();
 
     println!("listening on http://{} ({})", SOCKET, server.socket);
 }
 
-// Note: webform is multipart/form-data so that raw post data yields None. Doing
-// so allows us to unambiguously differentiate between a "data" variable (from
-// the web form) and a raw post that happens contain urlencoded query params.
-// Is this poor style?
-fn webupload(_: &mut Request) -> IronResult<Response> {
-    Ok(Response::with((status::Ok, Header(ContentType::html()), "<html><head></head><body>
-    Submit a paste using this form:
-    <form action=\"/\" method=\"post\" enctype=\"multipart/form-data\">
-     <textarea name=\"data\" style=\"display: block; width: 500px; height: 300px\"></textarea>
-     <input type=\"submit\">
-    </form>
-    </body></html>\n")))
-}
 
 fn usage(_: &mut Request) -> IronResult<Response> {
     let mut resp = Response::new();
@@ -161,6 +155,10 @@ fn usage(_: &mut Request) -> IronResult<Response> {
     return Ok(resp);
 }
 
+// Note: webform is multipart/form-data so that raw post data yields None.
+// Doing so allows us to unambiguously differentiate between a "data"
+// variable (from the web form) and a raw post that happens contain
+// urlencoded query params. Is this poor style?
 // TODO: determine whether bodyparser can replace Params ("parses body into a struct using Serde")
 fn submit(req: &mut Request) -> IronResult<Response> {
     // get paste contents, either raw post or data param

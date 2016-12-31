@@ -26,9 +26,9 @@
      Retrieves the content for the paste associated with <id>. If the optional
      parameter <ext> is supplied, syntax highlighting associated with the file
      extension <ext> is applied to the result (either via terminal escapes if
-     your UserAgent begins with "curl/", or HTML othersise). Yields a 404 Not
-     Found response if <id> does not exist, and a 403 Bad Request response if an
-     unknown file extension is requested.
+     your UserAgent begins with "curl/", or HTML othersise).
+     - Yields a 404 Not Found if <id> does not exist
+     - Yields a 403 Bad Request if <ext> is an unknown file extension.
 
      $ curl http://{{socket}}/{{id}}
      hello world
@@ -38,8 +38,8 @@
 
  DELETE /<id>/<key>
      Deletes the paste associated with <id>, provided that <key> is valid.
-     Yields a 403 Bad Request response if the paste does not exist, or if the
-     key is invalid.
+     - Yields a 403 Bad Request if the paste does not exist, or if the key is
+       invalid.
 
      $ curl -X DELETE http://{{socket}}/{{id}}/{{key}}
      Paste Deleted.
@@ -47,8 +47,9 @@
 
  PUT /<id>/<key>
      Replaces the contents of the paste associated with <id>, provided that
-     <key> is valid. Yields a 403 Bad Request response if the paste does not
-     exist, or if the key is invalid
+     <key> is valid.
+     - Yields a 403 Bad Request if the paste does not exist, or if the key is
+       invalid
 
      $ echo "other world" | curl -X PUT --data-binary @- \
      > http://{{socket}}/{{id}}/{{key}}
@@ -58,9 +59,9 @@ ________________________________________________________________________________
 
 
  You may find this bash function useful. Put it in your .bashrc and then run it
- via `paste file.txt` or `cat file.txt | paste`
+ via `pb file.txt` or `cat file.txt | pb`
 
- function paste() {
+ function pb() {
      local file=${1:-/dev/stdin}
      curl --data-binary @${file} http://{{socket}}
  }

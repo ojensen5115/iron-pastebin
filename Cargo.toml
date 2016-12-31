@@ -3,9 +3,6 @@ name = "pastebin"
 version = "0.1.0"
 authors = ["Oliver Jensen <ojensen5115@gmail.com>"]
 
-#[features]
-#watch = ["handlebars-iron/watch"]
-
 [dependencies.iron]
 version = "0.4.0"
 
@@ -15,6 +12,8 @@ params = "0.5.1"
 bodyparser = "0.4.1"
 urlencoded = "*"
 handlebars-iron = "*"
+staticfile = "*"
+mount = "*"
 
 rand = "0.3.15"
 syntect = "1.0.2"
