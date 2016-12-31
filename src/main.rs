@@ -79,7 +79,10 @@ const HTML_HIGHLIGHT_FOOT: &'static str = "</body>\n</html>\n";
 
 lazy_static! {
     static ref HMAC_KEY: String = {
-        let mut file = File::open("hmac_key.txt").expect("opening HMAC key file");
+        let mut file = match File::open("hmac_key.txt") {
+            Ok(f) => f,
+            Err(_) => return String::new()
+        };
         let mut key = String::new();
         file.read_to_string(&mut key).expect("reading HMAC key file");
         key
@@ -99,6 +102,8 @@ struct HighlighterData {
 }
 impl Key for HighlighterData { type Value = HighlighterData; }
 // TODO: why do we need these? why isn't this safe?
+// I *think* it's because SyntaxSet contains a RefCell which is not threadsafe
+// BUT we're only ever reading this after main, and never writing...
 unsafe impl Send for HighlighterData {}
 unsafe impl Sync for HighlighterData {}
 
@@ -115,7 +120,6 @@ fn main() {
         println!("You must set a key in hmac_key.txt");
         std::process::exit(1);
     }
-
 
     let mut router = Router::new();
     router.get("/", usage, "index");
