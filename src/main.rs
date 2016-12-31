@@ -1,5 +1,6 @@
 /*
 TODO:
+- Use staticfiles for static files (e.g. webupload)
 - Limit the upload to a maximum size, returning a 206 partial status on size exceeded.
 - Write unit tests.
 - Dispatch a thread before launching Iron in main that periodically cleans up idling old pastes in upload/.
@@ -14,6 +15,7 @@ DONE:
 - Generate unique key for each paste, restrict PUT and DELETE to knowing this key
 - Add a web form to the index where users can manually input new pastes. Accept the form at POST /. (need to use different content-type to differentiate)
 - Add a new route, GET /<id>/<lang> that syntax highlights the paste with ID <id> for language <lang>. If <lang> is not a known language, do no highlighting. Possibly validate <lang> with FromParam.
+- Use templates for templaty stuff (e.g. usage, HTML paste)
 */
 
 #[macro_use] extern crate iron;
@@ -60,24 +62,6 @@ const SOCKET: &'static str = "localhost:3000";
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const ID_LEN: usize = 5;
 const KEY_BYTES: usize = 8;
-const HTML_HIGHLIGHT_HEAD: &'static str = "<!DOCTYPE html>
-<html>
-  <head>
-    <style>
-body {
-    margin: 0
-}
-body > pre {
-    padding: 10px
-}
-pre {
-    margin: 0;
-    padding: 0px
-}
-    </style>
-  </head>
-  <body>";
-const HTML_HIGHLIGHT_FOOT: &'static str = "</body>\n</html>\n";
 
 lazy_static! {
     static ref HMAC_KEY: String = {
@@ -116,6 +100,8 @@ enum HighlightedText {
 }
 
 
+
+
 fn main() {
     if HMAC_KEY.as_bytes().len() == 0 {
         println!("You must set a key in hmac_key.txt");
@@ -147,6 +133,10 @@ fn main() {
     println!("listening on http://{} ({})", SOCKET, server.socket);
 }
 
+// Note: webform is multipart/form-data so that raw post data yields None. Doing
+// so allows us to unambiguously differentiate between a "data" variable (from
+// the web form) and a raw post that happens contain urlencoded query params.
+// Is this poor style?
 fn webupload(_: &mut Request) -> IronResult<Response> {
     Ok(Response::with((status::Ok, Header(ContentType::html()), "<html><head></head><body>
     Submit a paste using this form:
@@ -157,11 +147,6 @@ fn webupload(_: &mut Request) -> IronResult<Response> {
     </body></html>\n")))
 }
 
-
-// Note: webform is multipart/form-data so that raw post data yields None. Doing
-// so allows us to unambiguously differentiate between a "data" variable (from
-// the web form) and a raw post that happens contain urlencoded query params.
-// TODO: determine if it is poor style to have multipart forms without file upload?
 fn usage(_: &mut Request) -> IronResult<Response> {
     let mut resp = Response::new();
     resp.set_mut(Header(ContentType::plaintext()));
@@ -175,7 +160,6 @@ fn usage(_: &mut Request) -> IronResult<Response> {
     resp.set_mut(Template::new("index", data)).set_mut(status::Ok);
     return Ok(resp);
 }
-
 
 // TODO: determine whether bodyparser can replace Params ("parses body into a struct using Serde")
 fn submit(req: &mut Request) -> IronResult<Response> {
@@ -235,10 +219,13 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
             let html_output = is_curl(req);
             match highlight(buffer, lang, html_output) {
                 HighlightedText::Terminal(s) => Ok(Response::with((status::Ok, s))),
-                HighlightedText::Html(s) => Ok(Response::with((
-                    status::Ok,
-                    Header(ContentType::html()),
-                    String::from(HTML_HIGHLIGHT_HEAD) + &s + HTML_HIGHLIGHT_FOOT))),
+                HighlightedText::Html(s) => {
+                    let mut resp = Response::new();
+                    let mut data = BTreeMap::new();
+                    data.insert("paste".to_string(), s);
+                    resp.set_mut(Template::new("paste_html", data)).set_mut(status::Ok);
+                    Ok(resp)
+                },
                 HighlightedText::Error(s) => Ok(Response::with((status::BadRequest, format!("Invalid request: {}.\n", s))))
             }
         },
@@ -284,6 +271,9 @@ fn validate_key_id(req: &Request) -> Result<(String, String), String> {
     }
     return Ok((id, path));
 }
+
+
+
 
 fn generate_id(size: usize) -> String {
     let mut id = String::with_capacity(size);
