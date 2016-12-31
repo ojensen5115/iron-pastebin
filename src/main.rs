@@ -37,7 +37,6 @@ use iron::headers::{ContentType, UserAgent};
 use iron::modifiers::Header;
 use iron::prelude::*;
 use iron::status;
-use iron::typemap::Key;
 
 use params::{Params, Value};
 use router::Router;
@@ -88,24 +87,23 @@ lazy_static! {
         key
     };
 
-    static ref HIGHLIGHTER_DATA: HighlighterData = {
-        let ss = SyntaxSet::load_defaults_nonewlines();
+    static ref HL_SYNTAX_SET: HighlighterSyntaxSet = {
+        let ss = SyntaxSet::load_defaults_newlines();
+        HighlighterSyntaxSet {ss: ss}
+    };
+
+    static ref HL_THEME: Theme = {
         let ts = ThemeSet::load_defaults();
         let ref theme = ts.themes["base16-eighties.dark"];
-        HighlighterData {ss: ss, theme: theme.clone()}
+        theme.clone()
     };
 }
 
-struct HighlighterData {
+// TODO: re unsafe wrapper, see https://github.com/trishume/syntect/issues/29
+struct HighlighterSyntaxSet {
     ss: SyntaxSet,
-    theme: Theme
 }
-impl Key for HighlighterData { type Value = HighlighterData; }
-// TODO: why do we need these? why isn't this safe?
-// I *think* it's because SyntaxSet contains a RefCell which is not threadsafe
-// BUT we're only ever reading this after main, and never writing...
-unsafe impl Send for HighlighterData {}
-unsafe impl Sync for HighlighterData {}
+unsafe impl Sync for HighlighterSyntaxSet {}
 
 #[derive(Debug)]
 enum HighlightedText {
@@ -321,14 +319,14 @@ fn is_curl(req: &Request) -> bool {
 }
 
 fn highlight(buffer: String, lang: &str, html: bool) -> HighlightedText {
-    let syntax = HIGHLIGHTER_DATA.ss.find_syntax_by_extension(lang).unwrap_or_else(|| HIGHLIGHTER_DATA.ss.find_syntax_plain_text());
+    let syntax = HL_SYNTAX_SET.ss.find_syntax_by_extension(lang).unwrap_or_else(|| HL_SYNTAX_SET.ss.find_syntax_plain_text());
     if syntax.name == "Plain Text" {
         return HighlightedText::Error(format!("Requested highlight \"{}\" not available", lang));
     }
     if html {
-        HighlightedText::Html(highlighted_snippet_for_string(&buffer, syntax, &HIGHLIGHTER_DATA.theme))
+        HighlightedText::Html(highlighted_snippet_for_string(&buffer, syntax, &HL_THEME))
     } else {
-        let mut highlighter = HighlightLines::new(syntax, &HIGHLIGHTER_DATA.theme);
+        let mut highlighter = HighlightLines::new(syntax, &HL_THEME);
         let mut output = String::new();
         for line in buffer.lines() {
             let ranges: Vec<(Style, &str)> = highlighter.highlight(line);
