@@ -148,7 +148,7 @@ fn main() {
         let thirty_days = one_day * 30;
         loop {
             let now = time::SystemTime::now();
-            println!("Deleting pastes over 30 days old!");
+            println!("Pastes are deleted when they are 30 days old.");
             let files = fs::read_dir("./uploads").unwrap();
             for file in files {
                 let path = file.unwrap().path();
