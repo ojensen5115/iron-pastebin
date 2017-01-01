@@ -1,4 +1,4 @@
-# iron-pastebin
+# pastebin-iron
 
 This is a CLI-first Pastebin clone built on the Iron framework for Rust.
 
