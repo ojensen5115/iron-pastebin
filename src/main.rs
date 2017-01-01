@@ -146,14 +146,14 @@ fn main() {
     thread::spawn(move || {
         let one_day = time::Duration::from_secs(60*60*24);
         let thirty_days = one_day * 30;
+        println!("Pastes are deleted when they are 30 days old.");
         loop {
             let now = time::SystemTime::now();
-            println!("Pastes are deleted when they are 30 days old.");
             let files = fs::read_dir("./uploads").unwrap();
             for file in files {
                 let path = file.unwrap().path();
                 let attr = fs::metadata(&path).unwrap();
-                let last_modified = attr.modified().expect("reading last accessed time");
+                let last_modified = attr.modified().expect("reading last modified time");
                 if now.duration_since(last_modified).unwrap() > thirty_days {
                     fs::remove_file(path).expect(&format!("deleting file"));
                 }
