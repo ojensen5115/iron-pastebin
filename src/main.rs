@@ -1,8 +1,6 @@
 /*
 TODO:
-- Fix unsafe use of SyntaxSet for highlighting
 - Limit the upload to a maximum size, returning a 206 partial status on size exceeded.
-- Write unit tests.
 
 DONE:
 - Ensure generated PasteID is unique.
@@ -16,6 +14,7 @@ DONE:
 - Use templates for templaty stuff (e.g. usage, HTML paste)
 - Use staticfiles for static files (e.g. webupload)
 - Dispatch a thread that periodically cleans up idling old pastes in uploads.
+- Remove unsafe SyntaxSet reference, resolving race condition with lazy regex loading (see https://github.com/trishume/syntect/issues/29)
 */
 
 #[macro_use] extern crate iron;
@@ -80,11 +79,6 @@ lazy_static! {
         key
     };
 
-    static ref HL_SYNTAX_SET: HighlighterSyntaxSet = {
-        let ss = SyntaxSet::load_defaults_newlines();
-        HighlighterSyntaxSet {ss: ss}
-    };
-
     static ref HL_THEME: Theme = {
         let ts = ThemeSet::load_defaults();
         let ref theme = ts.themes["base16-eighties.dark"];
@@ -92,12 +86,11 @@ lazy_static! {
     };
 }
 
-// TODO: fix unsafe wrapper, see https://github.com/trishume/syntect/issues/29
-// and https://github.com/trishume/syntect/issues/20
-struct HighlighterSyntaxSet {
-    ss: SyntaxSet,
+// SyntaxSet does not implement Copy/Sync, so we do it like this.
+// see https://github.com/trishume/syntect/issues/20
+thread_local! {
+    static SYNTAX_SET: SyntaxSet = SyntaxSet::load_defaults_nonewlines();
 }
-unsafe impl Sync for HighlighterSyntaxSet {}
 
 #[derive(Debug)]
 enum HighlightedText {
@@ -325,21 +318,23 @@ fn is_curl(req: &Request) -> bool {
 }
 
 fn highlight(buffer: String, lang: &str, html: bool) -> HighlightedText {
-    let syntax = HL_SYNTAX_SET.ss.find_syntax_by_extension(lang).unwrap_or_else(|| HL_SYNTAX_SET.ss.find_syntax_plain_text());
-    if syntax.name == "Plain Text" {
-        return HighlightedText::Error(format!("Requested highlight \"{}\" not available", lang));
-    }
-    if html {
-        HighlightedText::Html(highlighted_snippet_for_string(&buffer, syntax, &HL_THEME))
-    } else {
-        let mut highlighter = HighlightLines::new(syntax, &HL_THEME);
-        let mut output = String::new();
-        for line in buffer.lines() {
-            let ranges: Vec<(Style, &str)> = highlighter.highlight(line);
-            let escaped;
-            escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-            output += &format!("{}\n", escaped);
+    SYNTAX_SET.with(|ss| {
+        let syntax = ss.find_syntax_by_extension(lang).unwrap_or_else(|| ss.find_syntax_plain_text());
+        if syntax.name == "Plain Text" {
+            return HighlightedText::Error(format!("Requested highlight \"{}\" not available", lang));
         }
-        HighlightedText::Terminal(output)
-    }
+        if html {
+            HighlightedText::Html(highlighted_snippet_for_string(&buffer, syntax, &HL_THEME))
+        } else {
+            let mut highlighter = HighlightLines::new(syntax, &HL_THEME);
+            let mut output = String::new();
+            for line in buffer.lines() {
+                let ranges: Vec<(Style, &str)> = highlighter.highlight(line);
+                let escaped;
+                escaped = as_24_bit_terminal_escaped(&ranges[..], false);
+                output += &format!("{}\n", escaped);
+            }
+            HighlightedText::Terminal(output)
+        }
+    })
 }
