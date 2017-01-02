@@ -44,7 +44,7 @@ use syntect::html::highlighted_snippet_for_string;
 use syntect::parsing::SyntaxSet;
 use syntect::util::as_24_bit_terminal_escaped;
 
-const SOCKET: &'static str = "localhost:3000";
+const SOCKET: &'static str = "0.0.0.0:3000";
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const ID_LEN: usize = 5;
 const KEY_BYTES: usize = 8;
