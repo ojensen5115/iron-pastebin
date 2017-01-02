@@ -2,6 +2,8 @@
 
 This is a CLI-first Pastebin clone built on the Iron framework for Rust.
 
+[LIVE DEMO](http://45.62.211.238:3000/)
+
 Being sick to the teeth with PHP and finding the various Python framworks (e.g. Django, Flask) unsatisfying, I was intrigued by the [Rocket](https://rocket.rs/) web framework for Rust.
 Mainly, I'm thinking that I really want a strongly-typed language and/or compiled language for web programming.
 I ran through Rocket's [tutorial app](https://rocket.rs/guide/pastebin/), but found the framework lacking in many regards.
