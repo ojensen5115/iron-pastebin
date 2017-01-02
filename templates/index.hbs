@@ -17,8 +17,9 @@
  POST /
      Accepts raw data in the body of the request and responds with the View and
      Edit URLs of the resulting paste. The Edit URL simply includes the edit key
-     as part of the URL (see DELETE and PUT below). Yields a 403 Bad Request
-     response if the paste is not valid UTF-8.
+     as part of the URL (see DELETE and PUT below).
+     - Yields a 403 Bad Request if the paste is not valid UTF-8, or if it is
+       larger than 2 MB.
 
      $ echo "hello world" | curl --data-binary @- http://{{socket}}
      View URL: http://{{socket}}/{{id}}
@@ -52,7 +53,7 @@
      Replaces the contents of the paste associated with <id>, provided that
      <key> is valid.
      - Yields a 403 Bad Request if the paste does not exist, or if the key is
-       invalid
+       invalid, or is larger than 2 MB.
 
      $ echo "other world" | curl -X PUT --data-binary @- \
      > http://{{socket}}/{{id}}/{{key}}

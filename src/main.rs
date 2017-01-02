@@ -1,23 +1,3 @@
-/*
-TODO:
-- Nothing!
-
-DONE:
-- Ensure generated PasteID is unique.
-- Set the Content-Type of the return value in upload and retrieve to text/plain.
-- Support deletion of pastes by adding a new DELETE /<id> route.
-- Require that the key is present and matches when doing deletion.
-- Add a PUT /<id> route that allows a user with the <id> to replace the existing paste, if any.
-- Generate unique key for each paste, restrict PUT and DELETE to knowing this key
-- Add a web form to the index where users can manually input new pastes. Accept the form at POST /. (need to use different content-type to differentiate)
-- Add a new route, GET /<id>/<lang> that syntax highlights the paste with ID <id> for language <lang>. If <lang> is not a known language, do no highlighting. Possibly validate <lang> with FromParam.
-- Use templates for templaty stuff (e.g. usage, HTML paste)
-- Use staticfiles for static files (e.g. webupload)
-- Dispatch a thread that periodically cleans up idling old pastes in uploads.
-- Remove unsafe SyntaxSet reference, resolving race condition with lazy regex loading (see https://github.com/trishume/syntect/issues/29)
-- Limit the upload to a maximum size.
-*/
-
 #[macro_use] extern crate iron;
 extern crate router;
 extern crate params;
@@ -271,9 +251,13 @@ fn replace(req: &mut Request) -> IronResult<Response> {
         Err(reason) => return Ok(Response::with((status::BadRequest, format!("Invalid request: {}.\n", reason))))
     };
     // write body
-    let body = itry!(req.get::<bodyparser::Raw>()).unwrap();
+    let paste = itry!(req.get::<bodyparser::Raw>()).unwrap();
+    // verify max size before saving it
+    if paste.len() > MAX_PASTE_BYTES {
+        return Ok(Response::with((status::BadRequest, format!("Pastes may not be more than {} MB.\n", MAX_PASTE_BYTES/1048576))))
+    }
     let mut f = itry!(File::create(path));
-    itry!(f.write_all(body.as_bytes()));
+    itry!(f.write_all(paste.as_bytes()));
     Ok(Response::with((status::Ok, format!("http://{socket}/{id} overwritten.\n", socket=SOCKET, id = id))))
 }
 
