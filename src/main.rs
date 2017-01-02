@@ -1,6 +1,6 @@
 /*
 TODO:
-- Limit the upload to a maximum size, returning a 206 partial status on size exceeded.
+- Nothing!
 
 DONE:
 - Ensure generated PasteID is unique.
@@ -15,6 +15,7 @@ DONE:
 - Use staticfiles for static files (e.g. webupload)
 - Dispatch a thread that periodically cleans up idling old pastes in uploads.
 - Remove unsafe SyntaxSet reference, resolving race condition with lazy regex loading (see https://github.com/trishume/syntect/issues/29)
+- Limit the upload to a maximum size.
 */
 
 #[macro_use] extern crate iron;
@@ -67,6 +68,7 @@ const SOCKET: &'static str = "localhost:3000";
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const ID_LEN: usize = 5;
 const KEY_BYTES: usize = 8;
+const MAX_PASTE_BYTES: usize = 2 * 1024 * 1024; // 2 MB
 
 lazy_static! {
     static ref HMAC_KEY: String = {
@@ -178,7 +180,6 @@ fn usage(_: &mut Request) -> IronResult<Response> {
 // TODO: determine whether bodyparser can replace Params ("parses body into a struct using Serde")
 fn submit(req: &mut Request) -> IronResult<Response> {
     // get paste contents, either raw post or data param
-    //let raw_body = itry!(req.get::<bodyparser::Raw>());
     let raw_body = match req.get::<bodyparser::Raw>() {
         Ok(body) => body,
         Err(e) => return Ok(Response::with((status::BadRequest, format!("Invalid paste data submitted: {}.\n", e.detail))))
@@ -194,6 +195,10 @@ fn submit(req: &mut Request) -> IronResult<Response> {
             }
         }
     };
+    // verify max size before saving it
+    if paste.len() > MAX_PASTE_BYTES {
+        return Ok(Response::with((status::BadRequest, format!("Pastes may not be more than {} MB.\n", MAX_PASTE_BYTES/1048576))))
+    }
     // get paste ID and URL
     let mut id: String;
     let mut path: String;
