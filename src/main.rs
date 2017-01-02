@@ -83,7 +83,7 @@ lazy_static! {
 
     static ref HL_THEME: Theme = {
         let ts = ThemeSet::load_defaults();
-        let ref theme = ts.themes["base16-eighties.dark"];
+        let theme = &ts.themes["base16-eighties.dark"];
         theme.clone()
     };
 }
@@ -150,7 +150,7 @@ fn main() {
                 let attr = fs::metadata(&path).unwrap();
                 let last_modified = attr.modified().expect("reading last modified time");
                 if now.duration_since(last_modified).unwrap() > thirty_days {
-                    fs::remove_file(path).expect(&format!("deleting file"));
+                    fs::remove_file(path).expect("deleting file");
                 }
             }
             thread::sleep(one_day);
@@ -170,7 +170,7 @@ fn usage(_: &mut Request) -> IronResult<Response> {
     data.insert("ext".to_string(), "rs".to_string());
 
     resp.set_mut(Template::new("index", data)).set_mut(status::Ok);
-    return Ok(resp);
+    Ok(resp)
 }
 
 // Note: webform is multipart/form-data so that raw post data yields None.
@@ -189,7 +189,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
         None => {
             // TODO: determine why this needs .get_ref, when we used .get above for raw post
             let params = req.get_ref::<Params>().unwrap();
-            match params.find(&[&"data"]) {
+            match params.find(&["data"]) {
                 Some(&Value::String(ref data)) => data.clone().to_string(),
                 _ => return Ok(Response::with((status::BadRequest, "No paste data submitted.\n")))
             }
@@ -221,7 +221,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
 fn retrieve(req: &mut Request) -> IronResult<Response> {
     let params = req.extensions.get::<Router>().unwrap();
     // TODO: "ref" appears unnecessary -- determine why it's here
-    let ref id = params.find("paste_id").unwrap_or("");
+    let id = &params.find("paste_id").unwrap_or("");
     let lang = params.find("lang");
 
     let mut f = match File::open(format!("uploads/{id}", id = id)) {
@@ -292,7 +292,7 @@ fn validate_key_id(req: &Request) -> Result<(String, String), String> {
     if key != gen_key(&id) {
         return Err("Key is not valid".to_string());
     }
-    return Ok((id, path));
+    Ok((id, path))
 }
 
 fn generate_id(size: usize) -> String {
