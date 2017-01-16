@@ -6,9 +6,9 @@ extern crate handlebars_iron;
 extern crate staticfile;
 extern crate mount;
 
+extern crate chrono;
 extern crate crypto;
-#[macro_use]
-extern crate lazy_static;
+#[macro_use] extern crate lazy_static;
 extern crate rand;
 extern crate syntect;
 
@@ -22,6 +22,7 @@ use std::thread;
 use std::time;
 
 use iron::headers::{ContentType, UserAgent};
+use iron::middleware::BeforeMiddleware;
 use iron::modifiers::Header;
 use iron::prelude::*;
 use iron::status;
@@ -31,6 +32,8 @@ use mount::Mount;
 use params::{Params, Value};
 use router::Router;
 use staticfile::Static;
+
+use chrono::{DateTime, UTC};
 
 use crypto::hmac::Hmac;
 use crypto::mac::Mac;
@@ -83,6 +86,15 @@ enum HighlightedText {
 
 
 
+struct LoggingMiddleware;
+impl BeforeMiddleware for LoggingMiddleware {
+    fn before(&self, req: &mut Request) -> IronResult<()> {
+        let utc: DateTime<UTC> = UTC::now();
+        println!("[{}] [{}]: {}", req.remote_addr, utc.format("%Y-%m-%d %H:%M:%S"), req.url);
+        Ok(())
+    }
+}
+
 
 fn main() {
     if HMAC_KEY.as_bytes().len() == 0 {
@@ -112,6 +124,7 @@ fn main() {
     }
 
     let mut chain = Chain::new(mount);
+    chain.link_before(LoggingMiddleware);
     chain.link_after(hbse);
     let server = Iron::new(chain).http(SOCKET).unwrap();
 
@@ -215,7 +228,7 @@ fn retrieve(req: &mut Request) -> IronResult<Response> {
     match lang {
         Some(lang) => {
             // syntax highlighting
-            let html_output = is_curl(req);
+            let html_output = !is_curl(req);
             match highlight(buffer, lang, html_output) {
                 HighlightedText::Terminal(s) => Ok(Response::with((status::Ok, s))),
                 HighlightedText::Html(s) => {
@@ -301,7 +314,7 @@ fn gen_key(input: &str) -> String {
 
 fn is_curl(req: &Request) -> bool {
     match req.headers.get::<UserAgent>() {
-        Some(&UserAgent(ref string)) => &string[..5] != "curl/",
+        Some(&UserAgent(ref string)) => string.starts_with("curl/"),
         _ => true
     }
 }

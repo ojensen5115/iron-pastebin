@@ -3,6 +3,7 @@ name = "pastebin"
 version = "0.1.0"
 dependencies = [
  "bodyparser 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "chrono 0.2.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "handlebars-iron 0.21.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "iron 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
