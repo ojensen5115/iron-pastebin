@@ -1,3 +1,16 @@
+/*
+Performance notes:
+- can handle 25 concurrent connections, up from 7 with Nickel
+- `./wrk -c 25 -t 4 -d 30s -R 50000 http://localhost:3000/_____`
+Using only 7 concurrent connections, performance is worse
+
+TYPE        URI                 NO LOGGING      println!()
+template    /                   36.0k r/s       20.3k r/s
+404         /askuuhgfsjfda      84.3k r/s       34.5k r/s
+static      /webupload          82.0k r/s       34.0k r/s
+retrieve    /mysrc              596   r/s       589   r/s
+*/
+
 #[macro_use] extern crate iron;
 extern crate router;
 extern crate params;
