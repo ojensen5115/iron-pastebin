@@ -20,9 +20,9 @@
      - Yields a 403 Bad Request if the paste is not valid UTF-8, or if it is
        larger than 2 MB.
 
-     $ echo "hello world" | curl --data-binary @- http://{{host}}
-     View URL: http://{{host}}/{{id}}
-     Edit URL: http://{{host}}/{{id}}/{{key}}
+     $ echo "hello world" | curl --data-binary @- https://{{host}}
+     View URL: https://{{host}}/{{id}}
+     Edit URL: https://{{host}}/{{id}}/{{key}}
 
 
  GET /<id>/<?ext>
@@ -33,9 +33,9 @@
      - Yields a 404 Not Found if <id> does not exist
      - Yields a 403 Bad Request if <ext> is an unknown file extension.
 
-     $ curl http://{{host}}/{{id}}
+     $ curl https://{{host}}/{{id}}
      hello world
-     $ curl http://{{host}}/{{id}}/{{ext}}
+     $ curl https://{{host}}/{{id}}/{{ext}}
      hello world [with Rust syntax highlighting]
 
 
@@ -44,7 +44,7 @@
      - Yields a 403 Bad Request if the paste does not exist, or if the key is
        invalid.
 
-     $ curl -X DELETE http://{{host}}/{{id}}/{{key}}
+     $ curl -X DELETE https://{{host}}/{{id}}/{{key}}
      Paste Deleted.
 
 
@@ -55,8 +55,8 @@
        invalid, or is larger than 2 MB.
 
      $ echo "other world" | curl -X PUT --data-binary @- \
-     > http://{{host}}/{{id}}/{{key}}
-     http://{{host}}/{{id}} overwritten.
+     > https://{{host}}/{{id}}/{{key}}
+     https://{{host}}/{{id}} overwritten.
 
 ________________________________________________________________________________
 
@@ -66,8 +66,8 @@ ________________________________________________________________________________
 
  function pb() {
      local file=${1:-/dev/stdin}
-     curl --data-binary @${file} http://{{host}}
+     curl --data-binary @${file} https://{{host}}
  }
 
  Alternatively, if you'd like to submit a paste from your browser, visit
- http://{{host}}/webupload
+ https://{{host}}/webupload
