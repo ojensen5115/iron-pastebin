@@ -220,7 +220,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
         }
         double_id_len += 1;
     }
-    let url = format!("http://{host}/{id}", host = get_hostname(req), id = id);
+    let url = format!("https://{host}/{id}", host = get_hostname(req), id = id);
 
     let mut f = itry!(File::create(path));
     itry!(f.write_all(paste.as_bytes()));
@@ -287,7 +287,7 @@ fn replace(req: &mut Request) -> IronResult<Response> {
     }
     let mut f = itry!(File::create(path));
     itry!(f.write_all(paste.as_bytes()));
-    Ok(Response::with((status::Ok, format!("http://{host}/{id} overwritten.\n", host=get_hostname(req), id = id))))
+    Ok(Response::with((status::Ok, format!("https://{host}/{id} overwritten.\n", host=get_hostname(req), id = id))))
 }
 
 
