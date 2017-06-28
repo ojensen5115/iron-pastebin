@@ -21,7 +21,7 @@ use std::io::Read;
 use std::thread;
 use std::time;
 
-use iron::headers::{ContentType, UserAgent};
+use iron::headers::{ContentType, UserAgent, Host};
 use iron::middleware::BeforeMiddleware;
 use iron::modifiers::Header;
 use iron::prelude::*;
@@ -47,7 +47,7 @@ use syntect::html::highlighted_snippet_for_string;
 use syntect::parsing::SyntaxSet;
 use syntect::util::as_24_bit_terminal_escaped;
 
-const SOCKET: &'static str = "0.0.0.0:3000";
+const SOCKET: &'static str = "127.0.0.1:3000";
 const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const ID_LEN: usize = 5;
 const KEY_BYTES: usize = 8;
@@ -104,6 +104,7 @@ fn main() {
 
     let mut router = Router::new();
     router.get("/", usage, "index");
+    router.get("/help", help, "help");
     router.get("/:paste_id", retrieve, "retrieve");
     router.get("/:paste_id/:lang", retrieve, "retrieve_lang");
     router.delete("/:paste_id", delete, "delete_nokey");
@@ -152,17 +153,32 @@ fn main() {
 }
 
 
-fn usage(_: &mut Request) -> IronResult<Response> {
+fn usage(req: &mut Request) -> IronResult<Response> {
     let mut resp = Response::new();
     resp.set_mut(Header(ContentType::plaintext()));
 
     let mut data = BTreeMap::new();
-    data.insert("socket".to_string(), SOCKET.to_string());
+    data.insert("host".to_string(), get_hostname(req));
     data.insert("id".to_string(), "vxcRz".to_string());
     data.insert("key".to_string(), "a7772362cf6e2c36".to_string());
     data.insert("ext".to_string(), "rs".to_string());
 
     resp.set_mut(Template::new("index", data)).set_mut(status::Ok);
+    Ok(resp)
+}
+
+fn help(req: &mut Request) -> IronResult<Response> {
+    // TODO: combine this with usage above.
+    let mut resp = Response::new();
+    resp.set_mut(Header(ContentType::plaintext()));
+
+    let mut data = BTreeMap::new();
+    data.insert("host".to_string(), get_hostname(req));
+    data.insert("id".to_string(), "vxcRz".to_string());
+    data.insert("key".to_string(), "a7772362cf6e2c36".to_string());
+    data.insert("ext".to_string(), "rs".to_string());
+
+    resp.set_mut(Template::new("help", data)).set_mut(status::Ok);
     Ok(resp)
 }
 
@@ -204,7 +220,7 @@ fn submit(req: &mut Request) -> IronResult<Response> {
         }
         double_id_len += 1;
     }
-    let url = format!("http://{socket}/{id}", socket = SOCKET, id = id);
+    let url = format!("http://{host}/{id}", host = get_hostname(req), id = id);
 
     let mut f = itry!(File::create(path));
     itry!(f.write_all(paste.as_bytes()));
@@ -271,7 +287,7 @@ fn replace(req: &mut Request) -> IronResult<Response> {
     }
     let mut f = itry!(File::create(path));
     itry!(f.write_all(paste.as_bytes()));
-    Ok(Response::with((status::Ok, format!("http://{socket}/{id} overwritten.\n", socket=SOCKET, id = id))))
+    Ok(Response::with((status::Ok, format!("http://{host}/{id} overwritten.\n", host=get_hostname(req), id = id))))
 }
 
 
@@ -310,6 +326,19 @@ fn gen_key(input: &str) -> String {
         .map(|b| format!("{:02X}", b))
         .collect();
     key.to_lowercase()
+}
+
+fn get_hostname(req: &Request) -> String {
+    match req.headers.get::<Host>() {
+        Some(h) => {
+            let mut host = h.hostname.to_owned();
+            if let Some(port) = h.port {
+                host = host + ":" + &port.to_string();
+            }
+            return host
+        },
+        _ => SOCKET.to_owned()
+    }
 }
 
 fn is_curl(req: &Request) -> bool {
