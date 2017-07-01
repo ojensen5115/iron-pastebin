@@ -52,6 +52,7 @@ const BASE62: &'static [u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl
 const ID_LEN: usize = 5;
 const KEY_BYTES: usize = 8;
 const MAX_PASTE_BYTES: usize = 2 * 1024 * 1024; // 2 MB
+const PASTE_DAYS: u32 = 30; // u32 needed for Duration checked_mul()
 
 lazy_static! {
     static ref HMAC_KEY: String = {
@@ -131,11 +132,11 @@ fn main() {
 
     println!("Listening on http://{} ({})", SOCKET, server.socket);
 
-    // every day, delete pastes > 30 days old
+    // every day, delete pastes > PASTE_DAYS days old
     thread::spawn(move || {
         let one_day = time::Duration::from_secs(60*60*24);
-        let thirty_days = one_day * 30;
-        println!("Pastes are deleted when they are 30 days old.");
+        let thirty_days = one_day * PASTE_DAYS;
+        println!("Pastes are deleted when they are {} days old.", PASTE_DAYS);
         loop {
             let now = time::SystemTime::now();
             let files = fs::read_dir("./uploads").unwrap();
@@ -224,7 +225,9 @@ fn submit(req: &mut Request) -> IronResult<Response> {
 
     let mut f = itry!(File::create(path));
     itry!(f.write_all(paste.as_bytes()));
-    Ok(Response::with((status::Created, format!("View URL: {url}\nEdit URL: {url}/{key}\n", url = url, key = gen_key(&id)))))
+    Ok(Response::with((status::Created, format!(
+        "View URL: {url}\nEdit URL: {url}/{key}\n\nThis paste will be deleted in {days} days.\n",
+        url = url, key = gen_key(&id), days = PASTE_DAYS))))
 }
 
 fn retrieve(req: &mut Request) -> IronResult<Response> {
@@ -287,7 +290,9 @@ fn replace(req: &mut Request) -> IronResult<Response> {
     }
     let mut f = itry!(File::create(path));
     itry!(f.write_all(paste.as_bytes()));
-    Ok(Response::with((status::Ok, format!("https://{host}/{id} overwritten.\n", host=get_hostname(req), id = id))))
+    Ok(Response::with((status::Ok, format!(
+        "https://{host}/{id} overwritten.\n\nThis paste will be deleted in {days} days.\n",
+        host=get_hostname(req), id = id, days = PASTE_DAYS))))
 }
 
 
